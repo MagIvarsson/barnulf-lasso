@@ -1,0 +1,5145 @@
+---
+title             : "BarnULF preregistration 3"
+shorttitle        : "BarnULF preregistration 3"
+
+author: 
+  - name          : "Magnus Ivarsson"
+    affiliation   : "1"
+  - name          : "Lina Homann"
+    affiliation   : "1"
+  - name          : "Henrik Danielsson"
+    affiliation   : "1"
+
+affiliation:
+  - id            : "1"
+    institution   : "Department of Behavioural Sciences and Learning, Linköping University, Linköping"
+
+authornote: |
+  
+abstract: |
+  
+keywords          : "keywords"
+wordcount         : "X"
+
+bibliography      : "barnulf-lasso-references.bib"
+
+floatsintext      : no
+linenumbers       : yes
+draft             : no
+mask              : no
+
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+
+classoption       : "man"
+output            : papaja::apa6_pdf
+---
+
+```{r setup, include = FALSE}
+library("papaja")
+library("tidyverse")
+library("mice")
+library("labelled")
+library("psych")
+library("lavaan")
+library("polycor")
+library("semPlot")
+```
+
+```{r analysis-preferences}
+#seed for random number generation
+set.seed(42)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+
+#show NA as nothing in tables
+options(papaja.na_string = "") #changed NA to "" in tables
+```
+
+<!-- preregistration: https://osf.io/czrx8 -->
+
+```{r load-data, include = FALSE}
+#load data
+df_barn1 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2013.dta")
+df_barn2 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2014.dta")
+df_barn3 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2015.dta")
+df_barn4 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2016.dta")
+df_barn5 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2017.dta")
+df_barn6 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2018.dta")
+df_barn7 <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/Obehandlad barndata/Homman_Lev_Barn_2019.dta")
+df_parent <- haven::read_dta("C:/Users/magiv10/OneDrive - Linköpings universitet/BarnULF registerstudie/BarnULF/data/AdultVariablesMergedAllWaves.dta")
+
+#merge the child data files
+list_df_barn <- list(df_barn1, df_barn2, df_barn3, df_barn4, df_barn5, df_barn6, df_barn7)
+df_barnulf <- Reduce(bind_rows, list_df_barn)
+```
+
+```{r set-up-data, include = FALSE}
+#select variables defined in preregistration
+df_barnulf_cfa_selected <- df_barnulf %>%
+  dplyr::select(
+    ID = lopnr_BarnID,
+    
+    #grouping/background variables
+    cohort = year,
+    age = barnald,
+    sex = barnkon,
+    child_impairment_asthma_allergy = BHA0009,
+    child_impairment_adhd_asd = BHA0003A,
+    child_impairment_dyslexia_dyscalculia = BHA0010,
+    child_impairment_hearing = BHA0005A,
+    child_impairment_vision = BHA0006A,
+    child_impairment_mobility = BHA0011,
+    child_impairment_other = BHA0007AA,
+
+    #mental health problems
+    mental_health_problem_sad = sad2,
+    mental_health_problem_concentrate = conc2,
+    mental_health_problem_nervous = nerv2,
+    mental_health_problem_stress_1 = stress3_H, #merge with variable on next row
+    mental_health_problem_stress_2 = stress2,
+    mental_health_problem_bad_sleep_1 = badsleep3_H, #merge with variable on next row
+    mental_health_problem_bad_sleep_2 = badsleep2,
+    mental_health_problem_fall_asleep_1 = sleep3_H, #merge with variable on next row
+    mental_health_problem_fall_asleep_2 = sleep2,
+    mental_health_problem_tired_1 = tired3_H, #merge with variable on next row
+    mental_health_problem_tired_2 = tired2,
+    mental_health_problem_headache_1 = head3_H, #merge with variable on next row
+    mental_health_problem_headache_2 = head2,
+    mental_health_problem_stomache_1 = stom3_H, #merge with variable on next row
+    mental_health_problem_stomache_2 = stom2
+  )
+```
+
+```{r replace-8-and-9-with-NA, include = FALSE}
+#according to the preregistration all 8s (“do not know”) and 9s (“refuse to answer”) should be replaced with NA.
+df_barnulf_cfa_selected_1_replaced_8_and_9s <- df_barnulf_cfa_selected %>%
+  mutate_at(
+    vars(
+      -ID
+      ), 
+    ~ replace(., which(. == 8), NA),
+    vars(
+      -ID
+      ), 
+    ~ replace(., which(. == 9), NA)
+    )
+```
+
+```{r collapsing-item-levels-and-reversing-items, include = FALSE}
+df_barnulf_cfa_selected_2_manipulated <- df_barnulf_cfa_selected_1_replaced_8_and_9s %>%
+  
+#mental health problem variables  
+  mutate(
+    #The 2 headache variables have differing levels:
+    #In mental_health_problem_headache_2 (2013-2015): 1 = "Every day", 2 = "A few times per week", 3 = "Once a week", 4 = "Once a month or so", 5 = "Less often or never". 
+    #In mental_health_problem_headache_1 (2016-2019): 1 = "Several times per week", 2 = "One time per week", 3 = "Less often", 4 = "Never". 
+    #mental_health_problem_headache_2 1-2 and 4-5 needs to merged. 
+    #mental_health_problem_headache_1 3-4 dito.
+    mental_health_problem_headache = case_when(mental_health_problem_headache_2 == 1 ~ 1,
+                                               mental_health_problem_headache_2 == 2 ~ 1,
+                                               mental_health_problem_headache_2 == 3 ~ 2,
+                                               mental_health_problem_headache_2 == 4 ~ 3,
+                                               mental_health_problem_headache_2 == 5 ~ 3,
+                                               mental_health_problem_headache_1 == 1 ~ 1,
+                                               mental_health_problem_headache_1 == 2 ~ 2,
+                                               mental_health_problem_headache_1 == 3 ~ 3,
+                                               mental_health_problem_headache_1 == 4 ~ 3,
+                                               TRUE ~ mental_health_problem_headache_2),
+    
+    #mental_health_problem_stomache_2 (2013-2015) and mental_health_problem_stomache_1 (2016-2019) have differing levels (same situation as with headache, so same type of transformation)
+    mental_health_problem_stomache = case_when(mental_health_problem_stomache_2 == 1 ~ 1,
+                                               mental_health_problem_stomache_2 == 2 ~ 1,
+                                               mental_health_problem_stomache_2 == 3 ~ 2,
+                                               mental_health_problem_stomache_2 == 4 ~ 3,
+                                               mental_health_problem_stomache_2 == 5 ~ 3,
+                                               mental_health_problem_stomache_1 == 1 ~ 1,
+                                               mental_health_problem_stomache_1 == 2 ~ 2,
+                                               mental_health_problem_stomache_1 == 3 ~ 3,
+                                               mental_health_problem_stomache_1 == 4 ~ 3,
+                                               TRUE ~ mental_health_problem_stomache_2),
+    
+    #mental_health_problem_bad_sleep_1 (2016-2019) and mental_health_problem_bad_sleep_2 (2013-2015) have differing levels (same situation as with headache/stomach ache, so same type of solution)
+    mental_health_problem_bad_sleep = case_when(mental_health_problem_bad_sleep_2 == 1 ~ 1,
+                                                mental_health_problem_bad_sleep_2 == 2 ~ 1,
+                                                mental_health_problem_bad_sleep_2 == 3 ~ 2,
+                                                mental_health_problem_bad_sleep_2 == 4 ~ 3,
+                                                mental_health_problem_bad_sleep_2 == 5 ~ 3,
+                                                mental_health_problem_bad_sleep_1 == 1 ~ 1,
+                                                mental_health_problem_bad_sleep_1 == 2 ~ 2,
+                                                mental_health_problem_bad_sleep_1 == 3 ~ 3,
+                                                mental_health_problem_bad_sleep_1 == 4 ~ 3,
+                                                TRUE ~ mental_health_problem_bad_sleep_2),
+    
+    #mental_health_problem_fall_asleep_1 (2016-2019) and mental_health_problem_fall_asleep_2 (2013-2015) have differing levels (same type of changes as with headache/stomach ache/bad sleep, so same type of solution)
+    mental_health_problem_fall_asleep = case_when(mental_health_problem_fall_asleep_2 == 1 ~ 1,
+                                                  mental_health_problem_fall_asleep_2 == 2 ~ 1,
+                                                  mental_health_problem_fall_asleep_2 == 3 ~ 2,
+                                                  mental_health_problem_fall_asleep_2 == 4 ~ 3,
+                                                  mental_health_problem_fall_asleep_2 == 5 ~ 3,
+                                                  mental_health_problem_fall_asleep_1 == 1 ~ 1,
+                                                  mental_health_problem_fall_asleep_1 == 2 ~ 2,
+                                                  mental_health_problem_fall_asleep_1 == 3 ~ 3,
+                                                  mental_health_problem_fall_asleep_1 == 4 ~ 3,
+                                                  TRUE ~ mental_health_problem_fall_asleep_2),
+    
+
+    
+    #mental_health_problem_tired_1 (2016-2019) and mental_health_problem_tired_2 (2013-2015) have differing levels:
+    #mental_health_problem_tired_1: 1 = "Every school day", 2 = "A few times per week", 3 = "One time per week", 4 = "Less often", 5 = "Never"
+    #mental_health_problem_tired_2: mental_health_problem_tired_1: 1 = "Every day", 2 = "A few times per week", 3 = "Once a week", 4 = "Once a month or so", 5 = "Less often or never"
+    mental_health_problem_tired = case_when(mental_health_problem_tired_2 == 1 ~ 1,
+                                            mental_health_problem_tired_2 == 2 ~ 2,
+                                            mental_health_problem_tired_2 == 3 ~ 3,
+                                            mental_health_problem_tired_2 == 4 ~ 4,
+                                            mental_health_problem_tired_2 == 5 ~ 4,
+                                            mental_health_problem_tired_1 == 1 ~ 1,
+                                            mental_health_problem_tired_1 == 2 ~ 2,
+                                            mental_health_problem_tired_1 == 3 ~ 3,
+                                            mental_health_problem_tired_1 == 4 ~ 4,
+                                            mental_health_problem_tired_1 == 5 ~ 4,
+                                            TRUE ~ mental_health_problem_tired_2),
+
+    #mental_health_problem_stress_1 (2016-2019) and mental_health_problem_stress_2 (2013-2015) have differing levels (same situation as with tired, so same type of transformation)
+    mental_health_problem_stress = case_when(mental_health_problem_stress_2 == 1 ~ 1,
+                                            mental_health_problem_stress_2 == 2 ~ 2,
+                                            mental_health_problem_stress_2 == 3 ~ 3,
+                                            mental_health_problem_stress_2 == 4 ~ 4,
+                                            mental_health_problem_stress_2 == 5 ~ 4,
+                                            mental_health_problem_stress_1 == 1 ~ 1,
+                                            mental_health_problem_stress_1 == 2 ~ 2,
+                                            mental_health_problem_stress_1 == 3 ~ 3,
+                                            mental_health_problem_stress_1 == 4 ~ 4,
+                                            mental_health_problem_stress_1 == 5 ~ 4,
+                                            TRUE ~ mental_health_problem_stress_2),
+    .keep = "unused")
+```
+
+```{r exclude-rows-with-nas, include = FALSE}
+#preregistration: "Subjects will be excluded if no data at all is recorded for each subject or if no data at all exists on the outcome measures."
+df_barnulf_cfa_selected_3_nas_removed <- df_barnulf_cfa_selected_2_manipulated %>%
+  dplyr::filter(
+    rowSums(is.na(df_barnulf_cfa_selected_2_manipulated)) != ncol(df_barnulf_cfa_selected_2_manipulated),
+    rowSums(!is.na(select(., starts_with("mental_health_problem")))) > 0
+    )
+
+#nr of participants removed in this step
+n_removed_nas <- nrow(df_barnulf_cfa_selected_2_manipulated)-nrow(df_barnulf_cfa_selected_3_nas_removed)
+```
+
+```{r transform-variables-to-integers, include = FALSE}
+df_barnulf_cfa_selected_4_integers <- as.data.frame(lapply(df_barnulf_cfa_selected_3_nas_removed, as.integer))
+```
+
+```{r inspect-missing-data, include = FALSE}
+#overview of entire data frame
+df_barnulf_cfa_selected_4_integers %>%
+  naniar::vis_miss() #5.3 #a lot of missing in disability-variables clustered together, probably for one year
+
+#overview of missing per year
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2019) %>%
+  naniar::vis_miss() #0.4%
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2018) %>%
+  naniar::vis_miss() #0.2%
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2017) %>%
+  naniar::vis_miss() #35.2% no disability-data
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2016) %>%
+  naniar::vis_miss() #0.3%
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2015) %>%
+  naniar::vis_miss() #0.2%
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2014) %>%
+  naniar::vis_miss() #0.1%
+
+df_barnulf_cfa_selected_4_integers %>%
+  dplyr::filter(cohort == 2013) %>%
+  naniar::vis_miss() #0.2%
+
+#since data collected in year 2017 did not contain any data on impairment (which is necessary for later analysis), that year us removed from the dataframe
+df_barnulf_cfa_selected_5_2017_removed <- df_barnulf_cfa_selected_4_integers %>%
+  filter(
+    cohort != 2017
+  )
+
+#new inspection of missingness after haaving removed observations made in 2017
+df_barnulf_cfa_selected_5_2017_removed %>%
+  naniar::vis_miss() #0.2% missing
+
+#overall degree of missingness
+missingness <- mean(is.na(df_barnulf_cfa_selected_5_2017_removed)) * 100
+
+
+```
+
+```{r impute, include = FALSE}
+#preregistration: "Missing data is treated as missing at random. Subjects will be excluded if no data at all is recorded for each subject or if no data at all exists on the outcome measures. Otherwise, multiple imputations will be performed to address missing data."
+
+#mental health problems-variables and disability-variables are moved to separate data frames so that they can be imputed separately
+df_mental_health_problem_for_imp <- df_barnulf_cfa_selected_5_2017_removed %>%
+  dplyr::select(ID,
+                starts_with("mental_")
+                )
+
+df_disability_variables_for_imp <- df_barnulf_cfa_selected_5_2017_removed %>%
+  dplyr::select(-starts_with("mental_")
+                )
+
+#dry run mice() to retrieve predictor matrices
+dry_run_mental_health_problem <- mice(df_mental_health_problem_for_imp, maxit = 0)
+predictor_matrix_mental_health_problem <- dry_run_mental_health_problem$predictorMatrix
+
+dry_run_disability <- mice(df_disability_variables_for_imp, maxit = 0)
+predictor_matrix_disability <- dry_run_disability$predictorMatrix
+
+
+#exclude ID from imputation
+predictor_matrix_mental_health_problem[, "ID"] <- 0
+predictor_matrix_disability[, "ID"] <- 0
+predictor_matrix_disability[, "cohort"] <- 0
+predictor_matrix_disability[, "age"] <- 0
+predictor_matrix_disability[, "sex"] <- 0
+
+
+#impute for each data frame separetely
+mice_mental_health_problem_only <- mice(df_mental_health_problem_for_imp, m = 5, predictorMatrix = predictor_matrix_mental_health_problem)
+
+mice_disability_only <- mice(df_disability_variables_for_imp, m = 5, predictorMatrix = predictor_matrix_disability)
+
+df_mental_health_problem_only_1 <- complete(mice_mental_health_problem_only, 1)
+df_mental_health_problem_only_2 <- complete(mice_mental_health_problem_only, 2)
+df_mental_health_problem_only_3 <- complete(mice_mental_health_problem_only, 3)
+df_mental_health_problem_only_4 <- complete(mice_mental_health_problem_only, 4)
+df_mental_health_problem_only_5 <- complete(mice_mental_health_problem_only, 5)
+
+df_disability_only_1 <- complete(mice_disability_only, 1)
+df_disability_only_2 <- complete(mice_disability_only, 2)
+df_disability_only_3 <- complete(mice_disability_only, 3)
+df_disability_only_4 <- complete(mice_disability_only, 4)
+df_disability_only_5 <- complete(mice_disability_only, 5)
+
+list_df_mental_health_problem_only <- list(df_mental_health_problem_only_1,
+                                           df_mental_health_problem_only_2,
+                                           df_mental_health_problem_only_3,
+                                           df_mental_health_problem_only_4,
+                                           df_mental_health_problem_only_5)
+
+list_df_disability_only <- list(df_disability_only_1,
+                                df_disability_only_2,
+                                df_disability_only_3,
+                                df_disability_only_4,
+                                df_disability_only_5)
+
+#join the imputed data frames
+list_df_barnulf_cfa_selected_imputed <- map2(list_df_disability_only,
+                                             list_df_mental_health_problem_only, 
+                                             ~ inner_join(.x, .y, by = "ID"))
+```
+
+```{r create-grouping-variables, include = FALSE}
+#according to pre-registration we should a) group children "into a group of 10-14 year olds and a group of 15-18 year olds" and b) investigate the effect on disability on the structure (which presupposes a variable with the levels disability/no disability)
+
+#define function
+age_impairment_groups_function <- function(df) {
+  df %>%
+  mutate(
+    age_group = case_when(age >= 10 & age <= 14 ~ 1,
+                          age >= 15 & age <= 18 ~ 2),
+    impairment = case_when(child_impairment_asthma_allergy == 1 ~ 1,
+                           child_impairment_adhd_asd == 1 ~ 1,
+                           child_impairment_dyslexia_dyscalculia == 1 ~ 1,
+                           child_impairment_hearing == 1 ~ 1,
+                           child_impairment_vision == 1 ~ 1,
+                           child_impairment_mobility == 1 ~ 1,
+                           child_impairment_other == 1 ~ 1,
+                           TRUE ~ 0)
+    )
+}
+
+#run on list of imputed data frames
+list_df_barnulf_cfa_selected_imputed_1 <- list_df_barnulf_cfa_selected_imputed %>%
+  purrr::map(
+    age_impairment_groups_function
+  )
+```
+
+```{r correlations, eval = FALSE}
+list_df_barnulf_cfa_selected_imputed_1[[1]] %>%
+  dplyr::select(starts_with("mental_health_problem")) %>%
+  cor() %>%
+  View()
+```
+
+```{r cfa-mental-health-problems, include = FALSE}
+#from preregistration: "A SEM analysis will be performed on the items in Table 1 to assess whether they all predict the same latent construct of mental health problems [...] Covariances will be added between the manifest variables if modification indices show that doing so would lead to notable improvements of the model (mi>4) and if the added path becomes significant (p<.05).Indicators not contributing significantly to the model will be removed. [...] To account for ordered variable types, the WLSMV estimator will be used.
+
+#define CFA-function
+fit_cfa_model <- function(model, data) {
+  cfa(data = data, model = model, estimator = "WLSMV")
+}
+
+#define original model
+mental_health_problems_model_1 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+'
+
+#fit the first model for each data frame
+imp_all_fit_1 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_1
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_1 <- map_dfr(
+  imp_all_fit_1, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_1 <- result_model_1 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_1 <- map(
+  .x = imp_all_fit_1, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_1 <- map_dfr(
+  .x=fit_measures_1, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_1 <- all_fits_1 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_1 <- map_dfr(
+  .x = imp_all_fit_1, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_1 <- all_mi_1 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_1)
+
+#model 2 (with the residual correlation with most importance to fit added)
+mental_health_problems_model_2 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+'
+
+#fit the first model for each data frame
+imp_all_fit_2 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_2
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_2 <- map_dfr(
+  imp_all_fit_2, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_2 <- result_model_2 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_2 <- map(
+  .x = imp_all_fit_2, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_2 <- map_dfr(
+  .x=fit_measures_2, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_2 <- all_fits_2 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_2 <- map_dfr(
+  .x = imp_all_fit_2, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_2 <- all_mi_2 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_2)
+
+#model 3 (with the residual correlation with the 2nd most importance to fit added)
+mental_health_problems_model_3 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired +mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+'
+
+#fit the first model for each data frame
+imp_all_fit_3 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_3
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_3 <- map_dfr(
+  imp_all_fit_3, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_3 <- result_model_3 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_3 <- map(
+  .x = imp_all_fit_3, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_3 <- map_dfr(
+  .x=fit_measures_3, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_3 <- all_fits_3 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_3 <- map_dfr(
+  .x = imp_all_fit_3, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_3 <- all_mi_3 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_3)
+
+#model 4 (with the residual correlation with the 3rd most importance to fit added)
+mental_health_problems_model_4 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+'
+
+#fit the first model for each data frame
+imp_all_fit_4 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_4
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_4 <- map_dfr(
+  imp_all_fit_4, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_4 <- result_model_4 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_4 <- map(
+  .x = imp_all_fit_4, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_4 <- map_dfr(
+  .x=fit_measures_4, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_4 <- all_fits_4 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_4 <- map_dfr(
+  .x = imp_all_fit_4, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_4 <- all_mi_4 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_4)
+
+#model 5 (with the residual correlation with the 4th most importance to fit added)
+mental_health_problems_model_5 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+mental_health_problem_headache ~~ mental_health_problem_stomache
+'
+
+#fit the first model for each data frame
+imp_all_fit_5 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_5
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_5 <- map_dfr(
+  imp_all_fit_5, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_5 <- result_model_5 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_5 <- map(
+  .x = imp_all_fit_5, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_5 <- map_dfr(
+  .x=fit_measures_5, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_5 <- all_fits_5 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_5 <- map_dfr(
+  .x = imp_all_fit_5, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_5 <- all_mi_5 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_5)
+
+#model 6 (with the residual correlation with the 5th most importance to fit added)
+mental_health_problems_model_6 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired +mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+mental_health_problem_headache ~~ mental_health_problem_stomache
+mental_health_problem_concentrate ~~ mental_health_problem_headache
+'
+
+#fit the first model for each data frame
+imp_all_fit_6 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_6
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_6 <- map_dfr(
+  imp_all_fit_6, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_6 <- result_model_6 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_6 <- map(
+  .x = imp_all_fit_6, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_6 <- map_dfr(
+  .x=fit_measures_6, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_6 <- all_fits_6 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_6 <- map_dfr(
+  .x = imp_all_fit_6, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_6 <- all_mi_6 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_6)
+
+#model 7 (with the residual correlation with the 6th most importance to fit added)
+mental_health_problems_model_7 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired +mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+mental_health_problem_headache ~~ mental_health_problem_stomache
+mental_health_problem_concentrate ~~ mental_health_problem_headache
+mental_health_problem_nervous ~~ mental_health_problem_stress
+'
+
+#fit the first model for each data frame
+imp_all_fit_7 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_7
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_7 <- map_dfr(
+  imp_all_fit_7, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_7 <- result_model_7 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_7 <- map(
+  .x = imp_all_fit_7, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_7 <- map_dfr(
+  .x=fit_measures_7, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_7 <- all_fits_7 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_7 <- map_dfr(
+  .x = imp_all_fit_7, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_7 <- all_mi_7 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_7)
+
+#model 8 (with the residual correlation with the 7th most importance to fit added)
+mental_health_problems_model_8 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+mental_health_problem_headache ~~ mental_health_problem_stomache
+mental_health_problem_concentrate ~~ mental_health_problem_headache
+mental_health_problem_nervous ~~ mental_health_problem_stress
+mental_health_problem_fall_asleep ~~ mental_health_problem_tired
+'
+
+#fit the first model to each data frame
+imp_all_fit_8 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_8
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_8 <- map_dfr(
+  imp_all_fit_8, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_8 <- result_model_8 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_8 <- map(
+  .x = imp_all_fit_8, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_8 <- map_dfr(
+  .x=fit_measures_8, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_8 <- all_fits_8 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_8 <- map_dfr(
+  .x = imp_all_fit_8, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_8 <- all_mi_8 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_8)
+
+#model 9 (with the residual correlation with the 8th most importance to fit added)
+mental_health_problems_model_9 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+
+#residual correlations
+mental_health_problem_bad_sleep ~~ mental_health_problem_fall_asleep
+mental_health_problem_sad ~~ mental_health_problem_nervous
+mental_health_problem_concentrate ~~ mental_health_problem_stress
+mental_health_problem_headache ~~ mental_health_problem_stomache
+mental_health_problem_concentrate ~~ mental_health_problem_headache
+mental_health_problem_nervous ~~ mental_health_problem_stress
+mental_health_problem_fall_asleep ~~ mental_health_problem_tired
+mental_health_problem_bad_sleep ~~ mental_health_problem_tired
+'
+
+#fit the first model to each data frame
+imp_all_fit_9 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ fit_cfa_model(
+    data = .x,
+    model = mental_health_problems_model_9
+    )
+  )
+
+#extract model parameters in tidy format
+result_model_9 <- map_dfr(
+  imp_all_fit_9, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_9 <- result_model_9 %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_9 <- map(
+  .x = imp_all_fit_9, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_9 <- map_dfr(
+  .x=fit_measures_9, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_9 <- all_fits_9 %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+#calculate modification indices
+all_mi_9 <- map_dfr(
+  .x = imp_all_fit_9, 
+  modindices
+  )
+
+#pool (calculate mean across imputations)
+pooled_mi_9 <- all_mi_9 %>%
+  unite("term", lhs:rhs) %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+View(pooled_mi_9)
+
+#no more possible modifications capable of improving fit >4 available
+
+#create factor scores based on final model
+imp_all_fit_9_factors <- map(
+  .x = imp_all_fit_9,
+  ~lavPredict(object = .x, type = "lv")
+  )
+
+#combine with data frames with imputed data
+list_df_barnulf_cfa_selected_imputed_mhp_factors <- purrr::map2(
+    .x = imp_all_fit_9_factors,
+    .y = list_df_barnulf_cfa_selected_imputed_1,
+    ~dplyr::bind_cols(.x, .y)
+  )
+
+#pool results by choosing the median value of the imputed data sets
+df_barnulf_imputed_five_df <- map_dfr(
+  .x = list_df_barnulf_cfa_selected_imputed_mhp_factors,
+  bind_cols
+  )
+
+df_barnulf_imputed_pooled <- df_barnulf_imputed_five_df %>%
+  group_by(ID) %>%
+  summarise(across(everything(), median, na.rm = TRUE))
+```
+
+```{r models-figures-setup, include = FALSE}
+#definie labels for figures
+sem_plot_labels  <- c(
+  "Sad/\ndown",
+  "Difficulties\nsitting\nstill/\nfocusing",
+  "Tense/\nnervous",
+  "Stress",
+  "Sleep\nproblems",
+  "Difficulties\nfalling\nasleep",
+  "Tired",
+  "Headache",
+  "Stomach\nache",
+  "Mental\nhealth\nproblems"
+  )
+
+#plot the original figure (for convenience reasons, the 5th imputed data set was chosen because it has the median chi2/df of the imputed data sets)
+original_figure_plot <- semPaths(
+  imp_all_fit_1[[2]], 
+  what = "std", 
+  intercepts = FALSE, 
+  thresholds = FALSE, 
+  residuals = TRUE, 
+  nodeLabels = sem_plot_labels, 
+  optimizeLatRes = TRUE, 
+  exoVar = FALSE, 
+  sizeMan= 10, 
+  sizeMan2 = 10, 
+  sizeLat = 12, 
+  edge.label.cex = .8, 
+  asize = 3,
+  esize = 5,
+  mar = c(11,3,3,3),
+  label.scale = FALSE,
+  label.cex = .7,
+  edge.label.bg = TRUE,
+  fade = TRUE,
+  cut = .3
+  )
+
+#plot the optimized figure (for convenience reasons, the 5th imputed data set was chosen because it has the median chi2/df of the imputed data sets)
+optimized_figure_plot <- semPaths(
+  imp_all_fit_9[[5]], 
+  what = "std", 
+  intercepts = FALSE, 
+  thresholds = FALSE, 
+  residuals = TRUE, 
+  nodeLabels = sem_plot_labels, 
+  optimizeLatRes = TRUE, 
+  exoVar = FALSE, 
+  sizeMan= 10, 
+  sizeMan2 = 10, 
+  sizeLat = 12, 
+  edge.label.cex = .8, 
+  asize = 3,
+  esize = 5,
+  mar = c(11,3,3,3),
+  label.scale = FALSE,
+  label.cex = .7,
+  edge.label.bg = TRUE,
+  fade = TRUE,
+  cut = .3
+  )
+
+#change the curvature of residual correlations
+optimized_figure_plot$graphAttributes$Edges$curve <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, -4.5, -5.5, -5.5, -4.5, -6.5, -4.5, -4.5, -5.5)
+```
+
+```{r cfa-multigroup-disability, include = FALSE}
+#From preregistration: "To assess whether the latent construct of mental health problems is the same across disability, cohorts, gender, and age, four multigroup analysis will be performed. 
+#For all four multigroup analyses: Initially, one fully constrained and one fully freed model will be fitted to data (paths between latent construct and the mental health problem variables will be set equal/freed for all groups). Only equality between paths (no other aspects of the model) will be tested."
+
+###models with disability as grouping variable 
+#model with freed factor loadings
+imp_all_fit_disability_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment"
+    )
+  )
+
+#model with constrained factor loadings
+imp_all_fit_disability_constrained <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings"
+    )
+  )
+
+###extract model parameters for the configural model in tidy format
+result_model_disability_free <- map_dfr(
+  imp_all_fit_disability_free, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_disability_free <- result_model_disability_free %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_disability_free <- map(
+  .x = imp_all_fit_disability_free, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_disability_free <- map_dfr(
+  .x=fit_measures_disability_free, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_disability_free <- all_fits_disability_free %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###extract model parameters for the model with constrained loading in tidy format
+result_model_disability_constrained <- map_dfr(
+  imp_all_fit_disability_constrained, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_disability_constrained <- result_model_disability_constrained %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_disability_constrained <- map(
+  .x = imp_all_fit_disability_constrained, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_disability_constrained <- map_dfr(
+  .x=fit_measures_disability_constrained, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_disability_constrained <- all_fits_disability_constrained %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###compare fits (robust chi-square) of the configural and constrained models
+#export robust chi-square and DF for both models
+list_chi_square_disability_free <- map(
+  .x = imp_all_fit_disability_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_disability_constrained <- map(
+  .x = imp_all_fit_disability_constrained,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+###create loop
+list_chi_sq_disability_results <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+disability_chi_sq_stats <- numeric(length(list_chi_square_disability_free))
+disability_p_values <- numeric(length(list_chi_square_disability_free))
+disability_df_values <- numeric(length(list_chi_square_disability_free))
+
+for (i in seq_along(list_chi_square_disability_free)) {
+  #extract chi-square and df values for each list and data frame
+  disability_chi_sq_free <- list_chi_square_disability_free[[i]][1]
+  disability_df_free <- list_chi_square_disability_free[[i]][2]
+  
+  disability_chi_sq_constrained <- list_chi_square_disability_constrained[[i]][1]
+  disability_df_constrained <- list_chi_square_disability_constrained[[i]][2]
+  
+  #perform chi-square test
+  disability_chisq_result <- chisq.test(
+    matrix(
+      c(
+        disability_chi_sq_free, 
+        disability_chi_sq_constrained, 
+        disability_df_free, 
+        disability_df_constrained
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  disability_chi_sq_stats[i] <- disability_chisq_result$statistic
+  disability_p_values[i] <- disability_chisq_result$p.value
+  disability_df_values[i] <- sum(disability_chisq_result$parameter)
+  
+  #save the result
+  list_chi_sq_disability_results[[i]] <- disability_chisq_result
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_disability_median_index <- which(
+  disability_chi_sq_stats == median(disability_chi_sq_stats)
+  )
+
+#create a data frame for the median chi-square result
+df_disability_chi_sq_median_result <- data.frame(
+  grouping.variable = "Disability",
+  chi.sq.difference = round(disability_chi_sq_stats[chi_sq_disability_median_index], 3),
+  DF = as.integer(disability_df_values[chi_sq_disability_median_index]),
+  p.value = round(disability_p_values[chi_sq_disability_median_index], 3)
+)
+```
+
+``` {r cfa-multigroup-cohort, include = FALSE}
+###models with cohort as grouping variable 
+#model with freed factor loadings
+imp_all_fit_cohort_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort"
+    )
+  )
+
+#model with constrained factor loadings
+imp_all_fit_cohort_constrained <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings"
+    )
+  )
+
+###extract model parameters for the configural model in tidy format
+result_model_cohort_free <- map_dfr(
+  imp_all_fit_cohort_free, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_cohort_free <- result_model_cohort_free %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_cohort_free <- map(
+  .x = imp_all_fit_cohort_free, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_cohort_free <- map_dfr(
+  .x=fit_measures_cohort_free, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_cohort_free <- all_fits_cohort_free %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###extract model parameters for the model with constrained loading in tidy format
+result_model_cohort_constrained <- map_dfr(
+  imp_all_fit_cohort_constrained, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_cohort_constrained <- result_model_cohort_constrained %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_cohort_constrained <- map(
+  .x = imp_all_fit_cohort_constrained, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_cohort_constrained <- map_dfr(
+  .x=fit_measures_cohort_constrained, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_cohort_constrained <- all_fits_cohort_constrained %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###compare fit (robust chi-square) of the configural and constrained models
+#export robust chi-square and DF for both models
+list_chi_square_cohort_free <- map(
+  .x = imp_all_fit_cohort_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_cohort_constrained <- map(
+  .x = imp_all_fit_cohort_constrained,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop
+list_chi_sq_cohort_results <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  cohort_chi_sq_constrained <- list_chi_square_cohort_constrained[[i]][1]
+  cohort_df_constrained <- list_chi_square_cohort_constrained[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_free, 
+        cohort_chi_sq_constrained, 
+        cohort_df_free, 
+        cohort_df_constrained
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats[i] <- cohort_chisq_result$statistic
+  cohort_p_values[i] <- cohort_chisq_result$p.value
+  cohort_df_values[i] <- sum(cohort_chisq_result$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results[[i]] <- cohort_chisq_result
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index <- which(
+  cohort_chi_sq_stats == median(cohort_chi_sq_stats)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result <- data.frame(
+  grouping.variable = "Cohort",
+  chi.sq.difference = round(cohort_chi_sq_stats[chi_sq_cohort_median_index], 3),
+  DF = as.integer(cohort_df_values[chi_sq_cohort_median_index]),
+  p.value = round(cohort_p_values[chi_sq_cohort_median_index], 3)
+)
+```
+
+``` {r cfa-multigroup_sex, include = FALSE}
+###models with sex as grouping variable 
+#model with freed factor loadings
+imp_all_fit_sex_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex"
+    )
+  )
+
+#model with constrained factor loadings
+imp_all_fit_sex_constrained <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings"
+    )
+  )
+
+###extract model parameters for the configural model in tidy format
+result_model_sex_free <- map_dfr(
+  imp_all_fit_sex_free, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_sex_free <- result_model_sex_free %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_sex_free <- map(
+  .x = imp_all_fit_sex_free, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_sex_free <- map_dfr(
+  .x=fit_measures_sex_free, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_sex_free <- all_fits_sex_free %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###extract model parameters for the model with constrained loading in tidy format
+result_model_sex_constrained <- map_dfr(
+  imp_all_fit_sex_constrained, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_sex_constrained <- result_model_sex_constrained %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_sex_constrained <- map(
+  .x = imp_all_fit_sex_constrained, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_sex_constrained <- map_dfr(
+  .x=fit_measures_sex_constrained, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_sex_constrained <- all_fits_sex_constrained %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###compare fit (robust chi-square) of the configural and constrained models
+#export robust chi-square and DF for both models
+list_chi_square_sex_free <- map(
+  .x = imp_all_fit_sex_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_sex_constrained <- map(
+  .x = imp_all_fit_sex_constrained,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop
+list_chi_sq_sex_results <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats <- numeric(length(list_chi_square_sex_free))
+sex_p_values <- numeric(length(list_chi_square_sex_free))
+sex_df_values <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  sex_chi_sq_constrained <- list_chi_square_sex_constrained[[i]][1]
+  sex_df_constrained <- list_chi_square_sex_constrained[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_free, 
+        sex_chi_sq_constrained, 
+        sex_df_free, 
+        sex_df_constrained
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats[i] <- sex_chisq_result$statistic
+  sex_p_values[i] <- sex_chisq_result$p.value
+  sex_df_values[i] <- sum(sex_chisq_result$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results[[i]] <- sex_chisq_result
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index <- which(
+  sex_chi_sq_stats == median(sex_chi_sq_stats)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result <- data.frame(
+  grouping.variable = "Sex",
+  chi.sq.difference = round(sex_chi_sq_stats[chi_sq_sex_median_index], 3),
+  DF = as.integer(sex_df_values[chi_sq_sex_median_index]),
+  p.value = round(sex_p_values[chi_sq_sex_median_index], 3)
+)
+```
+
+``` {r cfa-multigroup-age-group, include = FALSE}
+###models with age_group as grouping variable 
+#model with freed factor loadings
+imp_all_fit_age_group_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group"
+    )
+  )
+
+#model with constrained factor loadings
+imp_all_fit_age_group_constrained <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings"
+    )
+  )
+
+###extract model parameters for the configural model in tidy format
+result_model_age_group_free <- map_dfr(
+  imp_all_fit_age_group_free, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_age_group_free <- result_model_age_group_free %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_age_group_free <- map(
+  .x = imp_all_fit_age_group_free, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_age_group_free <- map_dfr(
+  .x=fit_measures_age_group_free, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_age_group_free <- all_fits_age_group_free %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###extract model parameters for the model with constrained loading in tidy format
+result_model_age_group_constrained <- map_dfr(
+  imp_all_fit_age_group_constrained, 
+  broom::tidy, 
+  .id = "dataset"
+  )
+
+#calculate mean model parameters across imputed datasets
+pooled_result_model_age_group_constrained <- result_model_age_group_constrained %>%
+  group_by(term) %>%
+  summarise_if(is.numeric, mean)
+
+#fit measures indices for each imputed dataset
+fit_measures_age_group_constrained <- map(
+  .x = imp_all_fit_age_group_constrained, 
+  ~summary(object = .x, fit.measures = TRUE, standardized = TRUE)
+  )
+
+#convert into one dataframe
+all_fits_age_group_constrained <- map_dfr(
+  .x=fit_measures_age_group_constrained, 
+  ~.x[["fit"]]
+  )
+
+#pool the fit measures (the mean)
+pooled_fits_age_group_constrained <- all_fits_age_group_constrained %>%
+  summarise_if(
+    is.numeric, 
+    mean
+    )
+
+###compare fits (robust chi-square) of the configural and confined models
+#export robust chi-square and DF for both models
+list_chi_square_age_group_free <- map(
+  .x = imp_all_fit_age_group_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_age_group_constrained <- map(
+  .x = imp_all_fit_age_group_constrained,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  age_group_chi_sq_constrained <- list_chi_square_age_group_constrained[[i]][1]
+  age_group_df_constrained <- list_chi_square_age_group_constrained[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_free, 
+        age_group_chi_sq_constrained, 
+        age_group_df_free, 
+        age_group_df_constrained
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats[i] <- age_group_chisq_result$statistic
+  age_group_p_values[i] <- age_group_chisq_result$p.value
+  age_group_df_values[i] <- sum(age_group_chisq_result$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results[[i]] <- age_group_chisq_result
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index <- which(
+  age_group_chi_sq_stats == median(age_group_chi_sq_stats)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result <- data.frame(
+  grouping.variable = "Age group",
+  chi.sq.difference = round(age_group_chi_sq_stats[chi_sq_age_group_median_index], 3),
+  DF = as.integer(age_group_df_values[chi_sq_age_group_median_index]),
+  p.value = round(age_group_p_values[chi_sq_age_group_median_index], 3)
+)
+
+
+
+###combine the results of all the analyses
+df_all_chi_sq_median_result <- rbind(
+  rbind(
+    rbind(
+      df_disability_chi_sq_median_result, 
+      df_cohort_chi_sq_median_result
+      ), 
+    df_sex_chi_sq_median_result
+    ), 
+  df_age_group_chi_sq_median_result
+  )
+```
+
+```{r cfa-multigroup-separate-loadings-constrained-sex, eval = FALSE}
+#description in preregistration: "Gender: Sixteen partially constrained models will be fitted to data, where each one of the 8 paths between the latent construct of mental health problems and its predictive variables, for each gender (male/female) group, will be unconstrained. In other words, 8 models for each gender will assess possible differences across gender on one path between the latent mental health problems construct and its variables at a time by freeing the path in question across groups while holding all others paths the same across groups."
+
+#"These partially constrained models will be compared with the free models with likelihood tests based on chi2 difference between models. If the models are significantly different (p < .05), the free model will be preferred, otherwise the constrained model will be preferred."
+
+mental_health_problems_model_1 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_sad + mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache
+'
+
+
+
+###freeing factor loading 1 of 9 and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_1 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stomache"
+    )
+  )
+
+imp_all_fit_sex_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_1 <- map(
+  .x = imp_all_fit_sex_partially_constrained_1,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_sex_free <- map(
+  .x = imp_all_fit_sex_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_1 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_1 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_1 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_1 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_1 <- list_chi_square_sex_partially_constrained_1[[i]][1]
+  sex_df_partially_constrained_1 <- list_chi_square_sex_partially_constrained_1[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_1 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_1, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_1, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_1[i] <- sex_chisq_result_1$statistic
+  sex_p_values_1[i] <- sex_chisq_result_1$p.value
+  sex_df_values_1[i] <- sum(sex_chisq_result_1$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_1[[i]] <- sex_chisq_result_1
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_1 <- which(
+  sex_chi_sq_stats_1 == median(sex_chi_sq_stats_1)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_stomache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stomach ache",
+  chi.sq.difference = round(sex_chi_sq_stats_1[chi_sq_sex_median_index_1], 3),
+  DF = as.integer(sex_df_values_1[chi_sq_sex_median_index_1]),
+  p.value = round(sex_p_values_1[chi_sq_sex_median_index_1], 3)
+)
+
+
+
+###freeing factor loading 2 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_2 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_headache"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_2 <- map(
+  .x = imp_all_fit_sex_partially_constrained_2,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_2 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_2 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_2 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_2 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_2 <- list_chi_square_sex_partially_constrained_2[[i]][1]
+  sex_df_partially_constrained_2 <- list_chi_square_sex_partially_constrained_2[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_2 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_2, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_2, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_2[i] <- sex_chisq_result_2$statistic
+  sex_p_values_2[i] <- sex_chisq_result_2$p.value
+  sex_df_values_2[i] <- sum(sex_chisq_result_2$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_2[[i]] <- sex_chisq_result_2
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_2 <- which(
+  sex_chi_sq_stats_2 == median(sex_chi_sq_stats_2)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_headache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Headache",
+  chi.sq.difference = round(sex_chi_sq_stats_2[chi_sq_sex_median_index_2], 3),
+  DF = as.integer(sex_df_values_2[chi_sq_sex_median_index_2]),
+  p.value = round(sex_p_values_2[chi_sq_sex_median_index_2], 3)
+)
+
+
+
+###freeing factor loading 3 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_3 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_tired"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_3 <- map(
+  .x = imp_all_fit_sex_partially_constrained_3,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_3 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_3 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_3 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_3 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_3 <- list_chi_square_sex_partially_constrained_3[[i]][1]
+  sex_df_partially_constrained_3 <- list_chi_square_sex_partially_constrained_3[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_3 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_3, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_3, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_3[i] <- sex_chisq_result_3$statistic
+  sex_p_values_3[i] <- sex_chisq_result_3$p.value
+  sex_df_values_3[i] <- sum(sex_chisq_result_3$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_3[[i]] <- sex_chisq_result_3
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_3 <- which(
+  sex_chi_sq_stats_3 == median(sex_chi_sq_stats_3)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_tired <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tired",
+  chi.sq.difference = round(sex_chi_sq_stats_3[chi_sq_sex_median_index_3], 3),
+  DF = as.integer(sex_df_values_3[chi_sq_sex_median_index_3]),
+  p.value = round(sex_p_values_3[chi_sq_sex_median_index_3], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_4 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_fall_asleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_4 <- map(
+  .x = imp_all_fit_sex_partially_constrained_4,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_4 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_4 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_4 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_4 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_4 <- list_chi_square_sex_partially_constrained_4[[i]][1]
+  sex_df_partially_constrained_4 <- list_chi_square_sex_partially_constrained_4[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_4 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_4, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_4, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_4[i] <- sex_chisq_result_4$statistic
+  sex_p_values_4[i] <- sex_chisq_result_4$p.value
+  sex_df_values_4[i] <- sum(sex_chisq_result_4$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_4[[i]] <- sex_chisq_result_4
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_4 <- which(
+  sex_chi_sq_stats_4 == median(sex_chi_sq_stats_4)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_fall_asleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties falling asleep",
+  chi.sq.difference = round(sex_chi_sq_stats_4[chi_sq_sex_median_index_4], 3),
+  DF = as.integer(sex_df_values_4[chi_sq_sex_median_index_4]),
+  p.value = round(sex_p_values_4[chi_sq_sex_median_index_4], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_5 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_bad_sleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_5 <- map(
+  .x = imp_all_fit_sex_partially_constrained_5,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_5 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_5 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_5 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_5 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_5 <- list_chi_square_sex_partially_constrained_5[[i]][1]
+  sex_df_partially_constrained_5 <- list_chi_square_sex_partially_constrained_5[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_5 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_5, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_5, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_5[i] <- sex_chisq_result_5$statistic
+  sex_p_values_5[i] <- sex_chisq_result_5$p.value
+  sex_df_values_5[i] <- sum(sex_chisq_result_5$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_5[[i]] <- sex_chisq_result_5
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_5 <- which(
+  sex_chi_sq_stats_5 == median(sex_chi_sq_stats_5)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_bad_sleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sleep problems",
+  chi.sq.difference = round(sex_chi_sq_stats_5[chi_sq_sex_median_index_5], 3),
+  DF = as.integer(sex_df_values_5[chi_sq_sex_median_index_5]),
+  p.value = round(sex_p_values_5[chi_sq_sex_median_index_5], 3)
+)
+
+
+
+###freeing factor loading 6 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_6 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stress"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_6 <- map(
+  .x = imp_all_fit_sex_partially_constrained_6,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_6 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_6 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_6 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_6 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_6 <- list_chi_square_sex_partially_constrained_6[[i]][1]
+  sex_df_partially_constrained_6 <- list_chi_square_sex_partially_constrained_6[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_6 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_6, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_6, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_6[i] <- sex_chisq_result_6$statistic
+  sex_p_values_6[i] <- sex_chisq_result_6$p.value
+  sex_df_values_6[i] <- sum(sex_chisq_result_6$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_6[[i]] <- sex_chisq_result_6
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_6 <- which(
+  sex_chi_sq_stats_6 == median(sex_chi_sq_stats_6)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_stress <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stress",
+  chi.sq.difference = round(sex_chi_sq_stats_6[chi_sq_sex_median_index_6], 3),
+  DF = as.integer(sex_df_values_6[chi_sq_sex_median_index_6]),
+  p.value = round(sex_p_values_6[chi_sq_sex_median_index_6], 3)
+)
+
+
+
+###freeing factor loading 7 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_7 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_nervous"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_7 <- map(
+  .x = imp_all_fit_sex_partially_constrained_7,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_7 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_7 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_7 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_7 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_7 <- list_chi_square_sex_partially_constrained_7[[i]][1]
+  sex_df_partially_constrained_7 <- list_chi_square_sex_partially_constrained_7[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_7 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_7, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_7, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_7[i] <- sex_chisq_result_7$statistic
+  sex_p_values_7[i] <- sex_chisq_result_7$p.value
+  sex_df_values_7[i] <- sum(sex_chisq_result_7$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_7[[i]] <- sex_chisq_result_7
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_7 <- which(
+  sex_chi_sq_stats_7 == median(sex_chi_sq_stats_7)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_nervous <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tense/nervous",
+  chi.sq.difference = round(sex_chi_sq_stats_7[chi_sq_sex_median_index_7], 3),
+  DF = as.integer(sex_df_values_7[chi_sq_sex_median_index_7]),
+  p.value = round(sex_p_values_7[chi_sq_sex_median_index_7], 3)
+)  
+
+
+
+###freeing factor loading 8 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_sex_partially_constrained_8 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_concentrate"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_8 <- map(
+  .x = imp_all_fit_sex_partially_constrained_8,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_8 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_8 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_8 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_8 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_8 <- list_chi_square_sex_partially_constrained_8[[i]][1]
+  sex_df_partially_constrained_8 <- list_chi_square_sex_partially_constrained_8[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_8 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_8, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_8, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_8[i] <- sex_chisq_result_8$statistic
+  sex_p_values_8[i] <- sex_chisq_result_8$p.value
+  sex_df_values_8[i] <- sum(sex_chisq_result_8$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_8[[i]] <- sex_chisq_result_8
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_8 <- which(
+  sex_chi_sq_stats_8 == median(sex_chi_sq_stats_8)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_concentrate <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties sitting still/focusing",
+  chi.sq.difference = round(sex_chi_sq_stats_8[chi_sq_sex_median_index_8], 3),
+  DF = as.integer(sex_df_values_8[chi_sq_sex_median_index_8]),
+  p.value = round(sex_p_values_8[chi_sq_sex_median_index_8], 3)
+)
+
+
+
+###freeing factor loading 9 of 9 in the model with constrained paths and comparing to the totally freed model
+
+#changing order of tha manifest variables (since the first one gets automatically constrained by the analysis)
+
+mental_health_problems_model_1_1 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache + mental_health_problem_sad
+'
+
+imp_all_fit_sex_partially_constrained_9 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1_1,
+    estimator = "WLSMV",
+    group = "sex",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_sad"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_sex_partially_constrained_9 <- map(
+  .x = imp_all_fit_sex_partially_constrained_9,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_sex_results_9 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+sex_chi_sq_stats_9 <- numeric(length(list_chi_square_sex_free))
+sex_p_values_9 <- numeric(length(list_chi_square_sex_free))
+sex_df_values_9 <- numeric(length(list_chi_square_sex_free))
+
+for (i in seq_along(list_chi_square_sex_free)) {
+  #extract chi-square and df values for each list and data frame
+  sex_chi_sq_partially_constrained_9 <- list_chi_square_sex_partially_constrained_9[[i]][1]
+  sex_df_partially_constrained_9 <- list_chi_square_sex_partially_constrained_9[[i]][2]
+  
+  sex_chi_sq_free <- list_chi_square_sex_free[[i]][1]
+  sex_df_free <- list_chi_square_sex_free[[i]][2]
+  
+  #perform chi-square test
+  sex_chisq_result_9 <- chisq.test(
+    matrix(
+      c(
+        sex_chi_sq_partially_constrained_9, 
+        sex_chi_sq_free, 
+        sex_df_partially_constrained_9, 
+        sex_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  sex_chi_sq_stats_9[i] <- sex_chisq_result_9$statistic
+  sex_p_values_9[i] <- sex_chisq_result_9$p.value
+  sex_df_values_9[i] <- sum(sex_chisq_result_9$parameter)
+  
+  #save the result
+  list_chi_sq_sex_results_9[[i]] <- sex_chisq_result_9
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_sex_median_index_9 <- which(
+  sex_chi_sq_stats_9 == median(sex_chi_sq_stats_9)
+  )
+
+#create a data frame for the median chi-square result
+df_sex_chi_sq_median_result_sad <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sad/down",
+  chi.sq.difference = round(sex_chi_sq_stats_9[chi_sq_sex_median_index_9], 3),
+  DF = as.integer(sex_df_values_9[chi_sq_sex_median_index_9]),
+  p.value = round(sex_p_values_9[chi_sq_sex_median_index_9], 3)
+)
+
+
+
+###combine dataframes
+df_sex_chi_sq_median_result_combined <- do.call(
+  rbind, 
+  list(df_sex_chi_sq_median_result_sad,
+       df_sex_chi_sq_median_result_stomache,
+       df_sex_chi_sq_median_result_headache,
+       df_sex_chi_sq_median_result_tired,
+       df_sex_chi_sq_median_result_fall_asleep,
+       df_sex_chi_sq_median_result_bad_sleep,
+       df_sex_chi_sq_median_result_stress,
+       df_sex_chi_sq_median_result_nervous,
+       df_sex_chi_sq_median_result_concentrate
+  ))
+```
+
+```{r cfa-multigroup-separate-loadings-constrained-disability, include = FALSE}
+#since there was a significant difference between the constrained and non-constrained disability divided model, post-hoc analyses are needed to identify which of the loadings differed between the models (in accordance with the preregistration).
+
+#description in preregistration: "Disability: Sixteen partially constrained models will be fitted to data, where each one of the 8 paths between the latent construct of mental health problems and its predictive variables, for each disability group (disability/no disability), will be unconstrained. In other words, 8 models for each group will assess possible differences across disability groups on one path between the latent mental health problems construct and its variables at a time by freeing the path in question across groups while holding all other paths constant across groups."
+
+#"These partially constrained models will be compared with the free models with likelihood tests based on chi2 difference between models. If the models are significantly different (p < .05), the free model will be preferred, otherwise the constrained model will be preferred."
+
+
+
+###freeing factor loading 1 of 9 and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_1 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stomache"
+    )
+  )
+
+imp_all_fit_impairment_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_1 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_1,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_impairment_free <- map(
+  .x = imp_all_fit_impairment_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_1 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_1 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_1 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_1 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_1 <- list_chi_square_impairment_partially_constrained_1[[i]][1]
+  impairment_df_partially_constrained_1 <- list_chi_square_impairment_partially_constrained_1[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_1 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_1, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_1, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_1[i] <- impairment_chisq_result_1$statistic
+  impairment_p_values_1[i] <- impairment_chisq_result_1$p.value
+  impairment_df_values_1[i] <- sum(impairment_chisq_result_1$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_1[[i]] <- impairment_chisq_result_1
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_1 <- which(
+  impairment_chi_sq_stats_1 == median(impairment_chi_sq_stats_1)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_stomache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stomach ache",
+  chi.sq.difference = round(impairment_chi_sq_stats_1[chi_sq_impairment_median_index_1], 3),
+  DF = as.integer(impairment_df_values_1[chi_sq_impairment_median_index_1]),
+  p.value = round(impairment_p_values_1[chi_sq_impairment_median_index_1], 3)
+)
+
+
+
+###freeing factor loading 2 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_2 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_headache"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_2 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_2,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_2 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_2 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_2 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_2 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_2 <- list_chi_square_impairment_partially_constrained_2[[i]][1]
+  impairment_df_partially_constrained_2 <- list_chi_square_impairment_partially_constrained_2[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_2 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_2, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_2, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_2[i] <- impairment_chisq_result_2$statistic
+  impairment_p_values_2[i] <- impairment_chisq_result_2$p.value
+  impairment_df_values_2[i] <- sum(impairment_chisq_result_2$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_2[[i]] <- impairment_chisq_result_2
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_2 <- which(
+  impairment_chi_sq_stats_2 == median(impairment_chi_sq_stats_2)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_headache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Headache",
+  chi.sq.difference = round(impairment_chi_sq_stats_2[chi_sq_impairment_median_index_2], 3),
+  DF = as.integer(impairment_df_values_2[chi_sq_impairment_median_index_2]),
+  p.value = round(impairment_p_values_2[chi_sq_impairment_median_index_2], 3)
+)
+
+
+
+###freeing factor loading 3 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_3 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_tired"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_3 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_3,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_3 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_3 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_3 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_3 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_3 <- list_chi_square_impairment_partially_constrained_3[[i]][1]
+  impairment_df_partially_constrained_3 <- list_chi_square_impairment_partially_constrained_3[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_3 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_3, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_3, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_3[i] <- impairment_chisq_result_3$statistic
+  impairment_p_values_3[i] <- impairment_chisq_result_3$p.value
+  impairment_df_values_3[i] <- sum(impairment_chisq_result_3$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_3[[i]] <- impairment_chisq_result_3
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_3 <- which(
+  impairment_chi_sq_stats_3 == median(impairment_chi_sq_stats_3)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_tired <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tired",
+  chi.sq.difference = round(impairment_chi_sq_stats_3[chi_sq_impairment_median_index_3], 3),
+  DF = as.integer(impairment_df_values_3[chi_sq_impairment_median_index_3]),
+  p.value = round(impairment_p_values_3[chi_sq_impairment_median_index_3], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_4 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_fall_asleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_4 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_4,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_4 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_4 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_4 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_4 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_4 <- list_chi_square_impairment_partially_constrained_4[[i]][1]
+  impairment_df_partially_constrained_4 <- list_chi_square_impairment_partially_constrained_4[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_4 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_4, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_4, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_4[i] <- impairment_chisq_result_4$statistic
+  impairment_p_values_4[i] <- impairment_chisq_result_4$p.value
+  impairment_df_values_4[i] <- sum(impairment_chisq_result_4$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_4[[i]] <- impairment_chisq_result_4
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_4 <- which(
+  impairment_chi_sq_stats_4 == median(impairment_chi_sq_stats_4)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_fall_asleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties falling asleep",
+  chi.sq.difference = round(impairment_chi_sq_stats_4[chi_sq_impairment_median_index_4], 3),
+  DF = as.integer(impairment_df_values_4[chi_sq_impairment_median_index_4]),
+  p.value = round(impairment_p_values_4[chi_sq_impairment_median_index_4], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_5 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_bad_sleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_5 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_5,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_5 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_5 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_5 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_5 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_5 <- list_chi_square_impairment_partially_constrained_5[[i]][1]
+  impairment_df_partially_constrained_5 <- list_chi_square_impairment_partially_constrained_5[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_5 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_5, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_5, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_5[i] <- impairment_chisq_result_5$statistic
+  impairment_p_values_5[i] <- impairment_chisq_result_5$p.value
+  impairment_df_values_5[i] <- sum(impairment_chisq_result_5$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_5[[i]] <- impairment_chisq_result_5
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_5 <- which(
+  impairment_chi_sq_stats_5 == median(impairment_chi_sq_stats_5)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_bad_sleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sleep problems",
+  chi.sq.difference = round(impairment_chi_sq_stats_5[chi_sq_impairment_median_index_5], 3),
+  DF = as.integer(impairment_df_values_5[chi_sq_impairment_median_index_5]),
+  p.value = round(impairment_p_values_5[chi_sq_impairment_median_index_5], 3)
+)
+
+
+
+###freeing factor loading 6 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_6 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stress"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_6 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_6,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_6 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_6 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_6 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_6 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_6 <- list_chi_square_impairment_partially_constrained_6[[i]][1]
+  impairment_df_partially_constrained_6 <- list_chi_square_impairment_partially_constrained_6[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_6 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_6, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_6, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_6[i] <- impairment_chisq_result_6$statistic
+  impairment_p_values_6[i] <- impairment_chisq_result_6$p.value
+  impairment_df_values_6[i] <- sum(impairment_chisq_result_6$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_6[[i]] <- impairment_chisq_result_6
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_6 <- which(
+  impairment_chi_sq_stats_6 == median(impairment_chi_sq_stats_6)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_stress <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stress",
+  chi.sq.difference = round(impairment_chi_sq_stats_6[chi_sq_impairment_median_index_6], 3),
+  DF = as.integer(impairment_df_values_6[chi_sq_impairment_median_index_6]),
+  p.value = round(impairment_p_values_6[chi_sq_impairment_median_index_6], 3)
+)
+
+
+
+###freeing factor loading 7 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_7 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_nervous"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_7 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_7,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_7 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_7 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_7 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_7 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_7 <- list_chi_square_impairment_partially_constrained_7[[i]][1]
+  impairment_df_partially_constrained_7 <- list_chi_square_impairment_partially_constrained_7[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_7 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_7, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_7, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_7[i] <- impairment_chisq_result_7$statistic
+  impairment_p_values_7[i] <- impairment_chisq_result_7$p.value
+  impairment_df_values_7[i] <- sum(impairment_chisq_result_7$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_7[[i]] <- impairment_chisq_result_7
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_7 <- which(
+  impairment_chi_sq_stats_7 == median(impairment_chi_sq_stats_7)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_nervous <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tense/nervous",
+  chi.sq.difference = round(impairment_chi_sq_stats_7[chi_sq_impairment_median_index_7], 3),
+  DF = as.integer(impairment_df_values_7[chi_sq_impairment_median_index_7]),
+  p.value = round(impairment_p_values_7[chi_sq_impairment_median_index_7], 3)
+)  
+
+
+
+###freeing factor loading 8 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_impairment_partially_constrained_8 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_concentrate"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_8 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_8,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_8 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_8 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_8 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_8 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_8 <- list_chi_square_impairment_partially_constrained_8[[i]][1]
+  impairment_df_partially_constrained_8 <- list_chi_square_impairment_partially_constrained_8[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_8 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_8, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_8, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_8[i] <- impairment_chisq_result_8$statistic
+  impairment_p_values_8[i] <- impairment_chisq_result_8$p.value
+  impairment_df_values_8[i] <- sum(impairment_chisq_result_8$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_8[[i]] <- impairment_chisq_result_8
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_8 <- which(
+  impairment_chi_sq_stats_8 == median(impairment_chi_sq_stats_8)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_concentrate <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties sitting still/focusing",
+  chi.sq.difference = round(impairment_chi_sq_stats_8[chi_sq_impairment_median_index_8], 3),
+  DF = as.integer(impairment_df_values_8[chi_sq_impairment_median_index_8]),
+  p.value = round(impairment_p_values_8[chi_sq_impairment_median_index_8], 3)
+)
+
+
+
+###freeing factor loading 9 of 9 in the model with constrained paths and comparing to the totally freed model
+
+#changing order of tha manifest variables (since the first one gets automatically constrained by the analysis)
+
+mental_health_problems_model_1_1 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache + mental_health_problem_sad
+'
+
+imp_all_fit_impairment_partially_constrained_9 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1_1,
+    estimator = "WLSMV",
+    group = "impairment",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_sad"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_impairment_partially_constrained_9 <- map(
+  .x = imp_all_fit_impairment_partially_constrained_9,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_impairment_results_9 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+impairment_chi_sq_stats_9 <- numeric(length(list_chi_square_impairment_free))
+impairment_p_values_9 <- numeric(length(list_chi_square_impairment_free))
+impairment_df_values_9 <- numeric(length(list_chi_square_impairment_free))
+
+for (i in seq_along(list_chi_square_impairment_free)) {
+  #extract chi-square and df values for each list and data frame
+  impairment_chi_sq_partially_constrained_9 <- list_chi_square_impairment_partially_constrained_9[[i]][1]
+  impairment_df_partially_constrained_9 <- list_chi_square_impairment_partially_constrained_9[[i]][2]
+  
+  impairment_chi_sq_free <- list_chi_square_impairment_free[[i]][1]
+  impairment_df_free <- list_chi_square_impairment_free[[i]][2]
+  
+  #perform chi-square test
+  impairment_chisq_result_9 <- chisq.test(
+    matrix(
+      c(
+        impairment_chi_sq_partially_constrained_9, 
+        impairment_chi_sq_free, 
+        impairment_df_partially_constrained_9, 
+        impairment_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  impairment_chi_sq_stats_9[i] <- impairment_chisq_result_9$statistic
+  impairment_p_values_9[i] <- impairment_chisq_result_9$p.value
+  impairment_df_values_9[i] <- sum(impairment_chisq_result_9$parameter)
+  
+  #save the result
+  list_chi_sq_impairment_results_9[[i]] <- impairment_chisq_result_9
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_impairment_median_index_9 <- which(
+  impairment_chi_sq_stats_9 == median(impairment_chi_sq_stats_9)
+  )
+
+#create a data frame for the median chi-square result
+df_impairment_chi_sq_median_result_sad <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sad/down",
+  chi.sq.difference = round(impairment_chi_sq_stats_9[chi_sq_impairment_median_index_9], 3),
+  DF = as.integer(impairment_df_values_9[chi_sq_impairment_median_index_9]),
+  p.value = round(impairment_p_values_9[chi_sq_impairment_median_index_9], 3)
+)
+
+
+
+###combine dataframes
+df_impairment_chi_sq_median_result_combined <- do.call(
+  rbind, 
+  list(df_impairment_chi_sq_median_result_sad,
+       df_impairment_chi_sq_median_result_stomache,
+       df_impairment_chi_sq_median_result_headache,
+       df_impairment_chi_sq_median_result_tired,
+       df_impairment_chi_sq_median_result_fall_asleep,
+       df_impairment_chi_sq_median_result_bad_sleep,
+       df_impairment_chi_sq_median_result_stress,
+       df_impairment_chi_sq_median_result_nervous,
+       df_impairment_chi_sq_median_result_concentrate
+  ))
+```
+
+```{r cfa-multigroup-separate-loadings-constrained-cohort, include = FALSE}
+#since there was a significant difference between the constrained and non-constrained cohort divided model, post-hoc analyses are needed to identify which of the loadings differed between the models (in accordance with the preregistration).
+
+#description in preregistration: "Cohort: Twenty-four partially constrained models will be fitted to data, where each one of the 8 paths between the latent construct of mental health problems and its predictive variables, for each cohort (cohort 1,2, and 3), will be unconstrained. In other words, 8 models for each cohort will assess possible differences across cohorts on one path between the latent mental health problems construct and its variables at a time by freeing the path in question across cohorts while holding all others paths the same across cohorts."
+
+#"These partially constrained models will be compared with the free models with likelihood tests based on chi2 difference between models. If the models are significantly different (p < .05), the free model will be preferred, otherwise the constrained model will be preferred."
+
+
+
+###freeing factor loading 1 of 9 and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_1 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stomache"
+    )
+  )
+
+imp_all_fit_cohort_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_1 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_1,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_cohort_free <- map(
+  .x = imp_all_fit_cohort_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_1 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_1 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_1 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_1 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_1 <- list_chi_square_cohort_partially_constrained_1[[i]][1]
+  cohort_df_partially_constrained_1 <- list_chi_square_cohort_partially_constrained_1[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_1 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_1, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_1, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_1[i] <- cohort_chisq_result_1$statistic
+  cohort_p_values_1[i] <- cohort_chisq_result_1$p.value
+  cohort_df_values_1[i] <- sum(cohort_chisq_result_1$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_1[[i]] <- cohort_chisq_result_1
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_1 <- which(
+  cohort_chi_sq_stats_1 == median(cohort_chi_sq_stats_1)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_stomache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stomach ache",
+  chi.sq.difference = round(cohort_chi_sq_stats_1[chi_sq_cohort_median_index_1], 3),
+  DF = as.integer(cohort_df_values_1[chi_sq_cohort_median_index_1]),
+  p.value = round(cohort_p_values_1[chi_sq_cohort_median_index_1], 3)
+)
+
+
+
+###freeing factor loading 2 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_2 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_headache"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_2 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_2,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_2 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_2 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_2 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_2 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_2 <- list_chi_square_cohort_partially_constrained_2[[i]][1]
+  cohort_df_partially_constrained_2 <- list_chi_square_cohort_partially_constrained_2[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_2 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_2, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_2, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_2[i] <- cohort_chisq_result_2$statistic
+  cohort_p_values_2[i] <- cohort_chisq_result_2$p.value
+  cohort_df_values_2[i] <- sum(cohort_chisq_result_2$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_2[[i]] <- cohort_chisq_result_2
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_2 <- which(
+  cohort_chi_sq_stats_2 == median(cohort_chi_sq_stats_2)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_headache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Headache",
+  chi.sq.difference = round(cohort_chi_sq_stats_2[chi_sq_cohort_median_index_2], 3),
+  DF = as.integer(cohort_df_values_2[chi_sq_cohort_median_index_2]),
+  p.value = round(cohort_p_values_2[chi_sq_cohort_median_index_2], 3)
+)
+
+
+
+###freeing factor loading 3 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_3 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_tired"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_3 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_3,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_3 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_3 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_3 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_3 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_3 <- list_chi_square_cohort_partially_constrained_3[[i]][1]
+  cohort_df_partially_constrained_3 <- list_chi_square_cohort_partially_constrained_3[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_3 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_3, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_3, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_3[i] <- cohort_chisq_result_3$statistic
+  cohort_p_values_3[i] <- cohort_chisq_result_3$p.value
+  cohort_df_values_3[i] <- sum(cohort_chisq_result_3$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_3[[i]] <- cohort_chisq_result_3
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_3 <- which(
+  cohort_chi_sq_stats_3 == median(cohort_chi_sq_stats_3)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_tired <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tired",
+  chi.sq.difference = round(cohort_chi_sq_stats_3[chi_sq_cohort_median_index_3], 3),
+  DF = as.integer(cohort_df_values_3[chi_sq_cohort_median_index_3]),
+  p.value = round(cohort_p_values_3[chi_sq_cohort_median_index_3], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_4 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_fall_asleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_4 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_4,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_4 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_4 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_4 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_4 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_4 <- list_chi_square_cohort_partially_constrained_4[[i]][1]
+  cohort_df_partially_constrained_4 <- list_chi_square_cohort_partially_constrained_4[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_4 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_4, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_4, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_4[i] <- cohort_chisq_result_4$statistic
+  cohort_p_values_4[i] <- cohort_chisq_result_4$p.value
+  cohort_df_values_4[i] <- sum(cohort_chisq_result_4$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_4[[i]] <- cohort_chisq_result_4
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_4 <- which(
+  cohort_chi_sq_stats_4 == median(cohort_chi_sq_stats_4)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_fall_asleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties falling asleep",
+  chi.sq.difference = round(cohort_chi_sq_stats_4[chi_sq_cohort_median_index_4], 3),
+  DF = as.integer(cohort_df_values_4[chi_sq_cohort_median_index_4]),
+  p.value = round(cohort_p_values_4[chi_sq_cohort_median_index_4], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_5 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_bad_sleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_5 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_5,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_5 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_5 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_5 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_5 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_5 <- list_chi_square_cohort_partially_constrained_5[[i]][1]
+  cohort_df_partially_constrained_5 <- list_chi_square_cohort_partially_constrained_5[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_5 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_5, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_5, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_5[i] <- cohort_chisq_result_5$statistic
+  cohort_p_values_5[i] <- cohort_chisq_result_5$p.value
+  cohort_df_values_5[i] <- sum(cohort_chisq_result_5$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_5[[i]] <- cohort_chisq_result_5
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_5 <- which(
+  cohort_chi_sq_stats_5 == median(cohort_chi_sq_stats_5)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_bad_sleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sleep problems",
+  chi.sq.difference = round(cohort_chi_sq_stats_5[chi_sq_cohort_median_index_5], 3),
+  DF = as.integer(cohort_df_values_5[chi_sq_cohort_median_index_5]),
+  p.value = round(cohort_p_values_5[chi_sq_cohort_median_index_5], 3)
+)
+
+
+
+###freeing factor loading 6 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_6 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stress"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_6 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_6,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_6 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_6 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_6 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_6 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_6 <- list_chi_square_cohort_partially_constrained_6[[i]][1]
+  cohort_df_partially_constrained_6 <- list_chi_square_cohort_partially_constrained_6[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_6 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_6, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_6, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_6[i] <- cohort_chisq_result_6$statistic
+  cohort_p_values_6[i] <- cohort_chisq_result_6$p.value
+  cohort_df_values_6[i] <- sum(cohort_chisq_result_6$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_6[[i]] <- cohort_chisq_result_6
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_6 <- which(
+  cohort_chi_sq_stats_6 == median(cohort_chi_sq_stats_6)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_stress <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stress",
+  chi.sq.difference = round(cohort_chi_sq_stats_6[chi_sq_cohort_median_index_6], 3),
+  DF = as.integer(cohort_df_values_6[chi_sq_cohort_median_index_6]),
+  p.value = round(cohort_p_values_6[chi_sq_cohort_median_index_6], 3)
+)
+
+
+
+###freeing factor loading 7 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_7 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_nervous"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_7 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_7,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_7 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_7 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_7 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_7 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_7 <- list_chi_square_cohort_partially_constrained_7[[i]][1]
+  cohort_df_partially_constrained_7 <- list_chi_square_cohort_partially_constrained_7[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_7 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_7, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_7, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_7[i] <- cohort_chisq_result_7$statistic
+  cohort_p_values_7[i] <- cohort_chisq_result_7$p.value
+  cohort_df_values_7[i] <- sum(cohort_chisq_result_7$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_7[[i]] <- cohort_chisq_result_7
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_7 <- which(
+  cohort_chi_sq_stats_7 == median(cohort_chi_sq_stats_7)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_nervous <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tense/nervous",
+  chi.sq.difference = round(cohort_chi_sq_stats_7[chi_sq_cohort_median_index_7], 3),
+  DF = as.integer(cohort_df_values_7[chi_sq_cohort_median_index_7]),
+  p.value = round(cohort_p_values_7[chi_sq_cohort_median_index_7], 3)
+)  
+
+
+
+###freeing factor loading 8 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_cohort_partially_constrained_8 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_concentrate"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_8 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_8,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_8 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_8 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_8 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_8 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_8 <- list_chi_square_cohort_partially_constrained_8[[i]][1]
+  cohort_df_partially_constrained_8 <- list_chi_square_cohort_partially_constrained_8[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_8 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_8, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_8, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_8[i] <- cohort_chisq_result_8$statistic
+  cohort_p_values_8[i] <- cohort_chisq_result_8$p.value
+  cohort_df_values_8[i] <- sum(cohort_chisq_result_8$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_8[[i]] <- cohort_chisq_result_8
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_8 <- which(
+  cohort_chi_sq_stats_8 == median(cohort_chi_sq_stats_8)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_concentrate <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties sitting still/focusing",
+  chi.sq.difference = round(cohort_chi_sq_stats_8[chi_sq_cohort_median_index_8], 3),
+  DF = as.integer(cohort_df_values_8[chi_sq_cohort_median_index_8]),
+  p.value = round(cohort_p_values_8[chi_sq_cohort_median_index_8], 3)
+)
+
+
+
+###freeing factor loading 9 of 9 in the model with constrained paths and comparing to the totally freed model
+
+#changing order of tha manifest variables (since the first one gets automatically constrained by the analysis)
+
+mental_health_problems_model_1_1 <- '
+#latent variable and indicators
+mental_health_problems =~ mental_health_problem_concentrate + mental_health_problem_nervous + mental_health_problem_stress + mental_health_problem_bad_sleep + mental_health_problem_fall_asleep + mental_health_problem_tired + mental_health_problem_headache + mental_health_problem_stomache + mental_health_problem_sad
+'
+
+imp_all_fit_cohort_partially_constrained_9 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1_1,
+    estimator = "WLSMV",
+    group = "cohort",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_sad"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_cohort_partially_constrained_9 <- map(
+  .x = imp_all_fit_cohort_partially_constrained_9,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_cohort_results_9 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+cohort_chi_sq_stats_9 <- numeric(length(list_chi_square_cohort_free))
+cohort_p_values_9 <- numeric(length(list_chi_square_cohort_free))
+cohort_df_values_9 <- numeric(length(list_chi_square_cohort_free))
+
+for (i in seq_along(list_chi_square_cohort_free)) {
+  #extract chi-square and df values for each list and data frame
+  cohort_chi_sq_partially_constrained_9 <- list_chi_square_cohort_partially_constrained_9[[i]][1]
+  cohort_df_partially_constrained_9 <- list_chi_square_cohort_partially_constrained_9[[i]][2]
+  
+  cohort_chi_sq_free <- list_chi_square_cohort_free[[i]][1]
+  cohort_df_free <- list_chi_square_cohort_free[[i]][2]
+  
+  #perform chi-square test
+  cohort_chisq_result_9 <- chisq.test(
+    matrix(
+      c(
+        cohort_chi_sq_partially_constrained_9, 
+        cohort_chi_sq_free, 
+        cohort_df_partially_constrained_9, 
+        cohort_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  cohort_chi_sq_stats_9[i] <- cohort_chisq_result_9$statistic
+  cohort_p_values_9[i] <- cohort_chisq_result_9$p.value
+  cohort_df_values_9[i] <- sum(cohort_chisq_result_9$parameter)
+  
+  #save the result
+  list_chi_sq_cohort_results_9[[i]] <- cohort_chisq_result_9
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_cohort_median_index_9 <- which(
+  cohort_chi_sq_stats_9 == median(cohort_chi_sq_stats_9)
+  )
+
+#create a data frame for the median chi-square result
+df_cohort_chi_sq_median_result_sad <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sad/down",
+  chi.sq.difference = round(cohort_chi_sq_stats_9[chi_sq_cohort_median_index_9], 3),
+  DF = as.integer(cohort_df_values_9[chi_sq_cohort_median_index_9]),
+  p.value = round(cohort_p_values_9[chi_sq_cohort_median_index_9], 3)
+)
+
+
+
+###combine dataframes
+df_cohort_chi_sq_median_result_combined <- do.call(
+  rbind, 
+  list(df_cohort_chi_sq_median_result_sad,
+       df_cohort_chi_sq_median_result_stomache,
+       df_cohort_chi_sq_median_result_headache,
+       df_cohort_chi_sq_median_result_tired,
+       df_cohort_chi_sq_median_result_fall_asleep,
+       df_cohort_chi_sq_median_result_bad_sleep,
+       df_cohort_chi_sq_median_result_stress,
+       df_cohort_chi_sq_median_result_nervous,
+       df_cohort_chi_sq_median_result_concentrate
+  ))
+```
+
+```{r cfa-multigroup-separate-loadings-constrained-age-group, eval = FALSE}
+#description in preregistration: "Age: Sixteen partially constrained models will be fitted to data, where each one of the 8 paths between the latent construct of mental health problems and its predictive variables, for each age group (10-14 and 15-18), will be unconstrained. In other words, 8 models for each age group will assess possible differences across age group on one path between the latent mental health problems construct and its variables at a time by freeing the path in question across groups while holding all others paths the same across groups."
+
+#"These partially constrained models will be compared with the free models with likelihood tests based on chi2 difference between models. If the models are significantly different (p < .05), the free model will be preferred, otherwise the constrained model will be preferred."
+
+
+
+###freeing factor loading 1 of 9 and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_1 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stomache"
+    )
+  )
+
+imp_all_fit_age_group_free <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_1 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_1,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+list_chi_square_age_group_free <- map(
+  .x = imp_all_fit_age_group_free,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_1 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_1 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_1 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_1 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_1 <- list_chi_square_age_group_partially_constrained_1[[i]][1]
+  age_group_df_partially_constrained_1 <- list_chi_square_age_group_partially_constrained_1[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_1 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_1, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_1, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_1[i] <- age_group_chisq_result_1$statistic
+  age_group_p_values_1[i] <- age_group_chisq_result_1$p.value
+  age_group_df_values_1[i] <- sum(age_group_chisq_result_1$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_1[[i]] <- age_group_chisq_result_1
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_1 <- which(
+  age_group_chi_sq_stats_1 == median(age_group_chi_sq_stats_1)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_stomache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stomach ache",
+  chi.sq.difference = round(age_group_chi_sq_stats_1[chi_sq_age_group_median_index_1], 3),
+  DF = as.integer(age_group_df_values_1[chi_sq_age_group_median_index_1]),
+  p.value = round(age_group_p_values_1[chi_sq_age_group_median_index_1], 3)
+)
+
+
+
+###freeing factor loading 2 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_2 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_headache"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_2 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_2,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_2 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_2 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_2 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_2 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_2 <- list_chi_square_age_group_partially_constrained_2[[i]][1]
+  age_group_df_partially_constrained_2 <- list_chi_square_age_group_partially_constrained_2[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_2 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_2, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_2, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_2[i] <- age_group_chisq_result_2$statistic
+  age_group_p_values_2[i] <- age_group_chisq_result_2$p.value
+  age_group_df_values_2[i] <- sum(age_group_chisq_result_2$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_2[[i]] <- age_group_chisq_result_2
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_2 <- which(
+  age_group_chi_sq_stats_2 == median(age_group_chi_sq_stats_2)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_headache <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Headache",
+  chi.sq.difference = round(age_group_chi_sq_stats_2[chi_sq_age_group_median_index_2], 3),
+  DF = as.integer(age_group_df_values_2[chi_sq_age_group_median_index_2]),
+  p.value = round(age_group_p_values_2[chi_sq_age_group_median_index_2], 3)
+)
+
+
+
+###freeing factor loading 3 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_3 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_tired"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_3 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_3,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_3 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_3 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_3 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_3 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_3 <- list_chi_square_age_group_partially_constrained_3[[i]][1]
+  age_group_df_partially_constrained_3 <- list_chi_square_age_group_partially_constrained_3[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_3 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_3, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_3, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_3[i] <- age_group_chisq_result_3$statistic
+  age_group_p_values_3[i] <- age_group_chisq_result_3$p.value
+  age_group_df_values_3[i] <- sum(age_group_chisq_result_3$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_3[[i]] <- age_group_chisq_result_3
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_3 <- which(
+  age_group_chi_sq_stats_3 == median(age_group_chi_sq_stats_3)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_tired <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tired",
+  chi.sq.difference = round(age_group_chi_sq_stats_3[chi_sq_age_group_median_index_3], 3),
+  DF = as.integer(age_group_df_values_3[chi_sq_age_group_median_index_3]),
+  p.value = round(age_group_p_values_3[chi_sq_age_group_median_index_3], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_4 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_fall_asleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_4 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_4,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_4 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_4 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_4 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_4 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_4 <- list_chi_square_age_group_partially_constrained_4[[i]][1]
+  age_group_df_partially_constrained_4 <- list_chi_square_age_group_partially_constrained_4[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_4 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_4, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_4, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_4[i] <- age_group_chisq_result_4$statistic
+  age_group_p_values_4[i] <- age_group_chisq_result_4$p.value
+  age_group_df_values_4[i] <- sum(age_group_chisq_result_4$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_4[[i]] <- age_group_chisq_result_4
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_4 <- which(
+  age_group_chi_sq_stats_4 == median(age_group_chi_sq_stats_4)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_fall_asleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties falling asleep",
+  chi.sq.difference = round(age_group_chi_sq_stats_4[chi_sq_age_group_median_index_4], 3),
+  DF = as.integer(age_group_df_values_4[chi_sq_age_group_median_index_4]),
+  p.value = round(age_group_p_values_4[chi_sq_age_group_median_index_4], 3)
+)
+
+
+
+###freeing factor loading 5 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_5 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_bad_sleep"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_5 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_5,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_5 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_5 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_5 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_5 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_5 <- list_chi_square_age_group_partially_constrained_5[[i]][1]
+  age_group_df_partially_constrained_5 <- list_chi_square_age_group_partially_constrained_5[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_5 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_5, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_5, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_5[i] <- age_group_chisq_result_5$statistic
+  age_group_p_values_5[i] <- age_group_chisq_result_5$p.value
+  age_group_df_values_5[i] <- sum(age_group_chisq_result_5$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_5[[i]] <- age_group_chisq_result_5
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_5 <- which(
+  age_group_chi_sq_stats_5 == median(age_group_chi_sq_stats_5)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_bad_sleep <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sleep problems",
+  chi.sq.difference = round(age_group_chi_sq_stats_5[chi_sq_age_group_median_index_5], 3),
+  DF = as.integer(age_group_df_values_5[chi_sq_age_group_median_index_5]),
+  p.value = round(age_group_p_values_5[chi_sq_age_group_median_index_5], 3)
+)
+
+
+
+###freeing factor loading 6 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_6 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_stress"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_6 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_6,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_6 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_6 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_6 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_6 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_6 <- list_chi_square_age_group_partially_constrained_6[[i]][1]
+  age_group_df_partially_constrained_6 <- list_chi_square_age_group_partially_constrained_6[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_6 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_6, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_6, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_6[i] <- age_group_chisq_result_6$statistic
+  age_group_p_values_6[i] <- age_group_chisq_result_6$p.value
+  age_group_df_values_6[i] <- sum(age_group_chisq_result_6$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_6[[i]] <- age_group_chisq_result_6
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_6 <- which(
+  age_group_chi_sq_stats_6 == median(age_group_chi_sq_stats_6)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_stress <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Stress",
+  chi.sq.difference = round(age_group_chi_sq_stats_6[chi_sq_age_group_median_index_6], 3),
+  DF = as.integer(age_group_df_values_6[chi_sq_age_group_median_index_6]),
+  p.value = round(age_group_p_values_6[chi_sq_age_group_median_index_6], 3)
+)
+
+
+
+###freeing factor loading 7 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_7 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_nervous"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_7 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_7,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_7 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_7 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_7 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_7 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_7 <- list_chi_square_age_group_partially_constrained_7[[i]][1]
+  age_group_df_partially_constrained_7 <- list_chi_square_age_group_partially_constrained_7[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_7 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_7, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_7, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_7[i] <- age_group_chisq_result_7$statistic
+  age_group_p_values_7[i] <- age_group_chisq_result_7$p.value
+  age_group_df_values_7[i] <- sum(age_group_chisq_result_7$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_7[[i]] <- age_group_chisq_result_7
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_7 <- which(
+  age_group_chi_sq_stats_7 == median(age_group_chi_sq_stats_7)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_nervous <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Tense/nervous",
+  chi.sq.difference = round(age_group_chi_sq_stats_7[chi_sq_age_group_median_index_7], 3),
+  DF = as.integer(age_group_df_values_7[chi_sq_age_group_median_index_7]),
+  p.value = round(age_group_p_values_7[chi_sq_age_group_median_index_7], 3)
+)  
+
+
+
+###freeing factor loading 8 of 9 in the model with constrained paths and comparing to the totally freed model
+imp_all_fit_age_group_partially_constrained_8 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_concentrate"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_8 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_8,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_8 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_8 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_8 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_8 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_8 <- list_chi_square_age_group_partially_constrained_8[[i]][1]
+  age_group_df_partially_constrained_8 <- list_chi_square_age_group_partially_constrained_8[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_8 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_8, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_8, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_8[i] <- age_group_chisq_result_8$statistic
+  age_group_p_values_8[i] <- age_group_chisq_result_8$p.value
+  age_group_df_values_8[i] <- sum(age_group_chisq_result_8$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_8[[i]] <- age_group_chisq_result_8
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_8 <- which(
+  age_group_chi_sq_stats_8 == median(age_group_chi_sq_stats_8)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_concentrate <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Difficulties sitting still/focusing",
+  chi.sq.difference = round(age_group_chi_sq_stats_8[chi_sq_age_group_median_index_8], 3),
+  DF = as.integer(age_group_df_values_8[chi_sq_age_group_median_index_8]),
+  p.value = round(age_group_p_values_8[chi_sq_age_group_median_index_8], 3)
+)
+
+
+
+###freeing factor loading 9 of 9 in the model with constrained paths and comparing to the totally freed model
+
+imp_all_fit_age_group_partially_constrained_9 <- map(
+  .x = list_df_barnulf_cfa_selected_imputed_1, 
+  ~ cfa(
+    data = .x,
+    model = mental_health_problems_model_1_1,
+    estimator = "WLSMV",
+    group = "age_group",
+    group.equal = "loadings",
+    group.partial = "mental_health_problems =~ mental_health_problem_sad"
+    )
+  )
+
+#export robust chi-square and DF for both models
+list_chi_square_age_group_partially_constrained_9 <- map(
+  .x = imp_all_fit_age_group_partially_constrained_9,
+  ~ lavaan::fitMeasures(
+    object = .x,
+     fit.measures = c(
+       "chisq.scaled", 
+       "df.scaled"),
+    robust = TRUE
+    )
+)
+
+#create loop to compare free and constrained fits (robust chi-square) for each data frame
+list_chi_sq_age_group_results_9 <- list()
+
+#variables to keep track of chi-square statistics, p-values, and df values for each comparison
+age_group_chi_sq_stats_9 <- numeric(length(list_chi_square_age_group_free))
+age_group_p_values_9 <- numeric(length(list_chi_square_age_group_free))
+age_group_df_values_9 <- numeric(length(list_chi_square_age_group_free))
+
+for (i in seq_along(list_chi_square_age_group_free)) {
+  #extract chi-square and df values for each list and data frame
+  age_group_chi_sq_partially_constrained_9 <- list_chi_square_age_group_partially_constrained_9[[i]][1]
+  age_group_df_partially_constrained_9 <- list_chi_square_age_group_partially_constrained_9[[i]][2]
+  
+  age_group_chi_sq_free <- list_chi_square_age_group_free[[i]][1]
+  age_group_df_free <- list_chi_square_age_group_free[[i]][2]
+  
+  #perform chi-square test
+  age_group_chisq_result_9 <- chisq.test(
+    matrix(
+      c(
+        age_group_chi_sq_partially_constrained_9, 
+        age_group_chi_sq_free, 
+        age_group_df_partially_constrained_9, 
+        age_group_df_free
+        ), 
+      nrow = 2
+      )
+    )
+  
+  #export chi-square statistics, p-values, and df values
+  age_group_chi_sq_stats_9[i] <- age_group_chisq_result_9$statistic
+  age_group_p_values_9[i] <- age_group_chisq_result_9$p.value
+  age_group_df_values_9[i] <- sum(age_group_chisq_result_9$parameter)
+  
+  #save the result
+  list_chi_sq_age_group_results_9[[i]] <- age_group_chisq_result_9
+}
+
+#find the index of the DF with the median chi-square statistic
+chi_sq_age_group_median_index_9 <- which(
+  age_group_chi_sq_stats_9 == median(age_group_chi_sq_stats_9)
+  )
+
+#create a data frame for the median chi-square result
+df_age_group_chi_sq_median_result_sad <- data.frame(
+  constrained.path = "Mental health problems =$\\sim$ Sad/down",
+  chi.sq.difference = round(age_group_chi_sq_stats_9[chi_sq_age_group_median_index_9], 3),
+  DF = as.integer(age_group_df_values_9[chi_sq_age_group_median_index_9]),
+  p.value = round(age_group_p_values_9[chi_sq_age_group_median_index_9], 3)
+)
+
+
+
+###combine dataframes
+df_age_group_chi_sq_median_result_combined <- do.call(
+  rbind, 
+  list(df_age_group_chi_sq_median_result_sad,
+       df_age_group_chi_sq_median_result_stomache,
+       df_age_group_chi_sq_median_result_headache,
+       df_age_group_chi_sq_median_result_tired,
+       df_age_group_chi_sq_median_result_fall_asleep,
+       df_age_group_chi_sq_median_result_bad_sleep,
+       df_age_group_chi_sq_median_result_stress,
+       df_age_group_chi_sq_median_result_nervous,
+       df_age_group_chi_sq_median_result_concentrate
+  ))
+```
+
+# Background
+
+# Aim of the study
+
+This study aims to investigate if mental health problems can be described as a latent factor (indicated by a number of the questions in the BarnULF survey) and if the structure differ across disability, cohorts, age, and gender.
+
+# Methods
+
+The methods used in this study was decided before any of the authors had access to the data and has been posted as a preregistration at https://osf.io/czrx8. Deviations from this protocol is labeled as such. The study protocol was reviewed and approved by the Swedish Ethical Review Authority in 2022 (NR)<!--(lägg till dnr)-->. 
+
+## Data
+
+The study utilizes cross-sectional survey data from two linked registers administered by Statistics Sweden (Statistiska Centralbyrån; SCB): (i) ULF/SILC, containing information about randomly selected Swedish adults, and (ii) BarnULF, with data reported by children of a subset of ULF participants. All ULF/SILC participants with children aged 12-18 years (previously 10-18 years before 2014) were approached, and those agreeing to a separate child interview formed the BarnULF subset. The registers were linked before de-identification, allowing for combined parent and child data analysis. For the present study, data collected between 2013 and 2019 was exclusively requested due to the introduction of disability-related variables to the ULF database in 2013. BarnULF is the main source of data for the present study, however information on the child’s disability and age were retrieved from ULF/SILC. A full list of the variables requested for the present study is listed in the preregistration.
+
+## Participants
+
+(ref:participant-characteristics-table-caption) Participant characteristics.
+
+(ref:participant-characteristics-table-note) Abbreviations used in table: Autism Spectrum Disorder (ASD), Attention Deficit Hyperactivity Disorder (ADHD).
+
+```{r participant-characteristics-table, include = TRUE}
+#save names of impairment-related variables to be included in table
+child_impairment_vars <- grep("^child_impairment", names(df_barnulf_cfa_selected_5_2017_removed), value = TRUE)
+
+###set up data frame(s) for table
+#1) data frame grouped on sex
+df_participant_characteristics_by_gender <- df_barnulf_cfa_selected_5_2017_removed %>%
+  mutate(any_impairment = if_else(rowSums(select(., starts_with("child_impairment_")) == 1) > 0, 1, 0)) %>%
+  group_by(sex) %>%
+  summarise(
+    "Age, M (SD)" = sprintf("%.2f (%.2f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
+    "2013" = sum(cohort == 2013, na.rm = TRUE),
+    "2014" = sum(cohort == 2014, na.rm = TRUE),
+    "2015" = sum(cohort == 2015, na.rm = TRUE),
+    "2016" = sum(cohort == 2016, na.rm = TRUE),
+    "2018" = sum(cohort == 2018, na.rm = TRUE),
+    "2019" = sum(cohort == 2019, na.rm = TRUE),
+    Total = sum(!is.na(age)),
+    across(all_of(child_impairment_vars), 
+           list(
+             "%_Impaired" = ~ sprintf("%.2f (%d)", mean(. == 1, na.rm = TRUE) * 100, sum(. == 1, na.rm = TRUE))),
+           .names = "{col}_Summary"),
+    "Any" = sprintf("%.2f (%d)", mean(any_impairment, na.rm = TRUE) * 100, sum(any_impairment, na.rm = TRUE))
+  ) %>%
+t() %>%
+as.data.frame() %>%
+slice(-1) %>%
+setNames(c("Boys", "Girls"))
+
+#2) ungrouped data frame
+df_participant_characteristics_ungrouped <- df_barnulf_cfa_selected_5_2017_removed %>%
+  mutate(any_impairment = if_else(rowSums(select(., starts_with("child_impairment_")) == 1) > 0, 1, 0)) %>%
+  summarise(
+    "Age, M (SD)" = sprintf("%.2f (%.2f)", mean(age, na.rm = TRUE), sd(age, na.rm = TRUE)),
+    "2013" = sum(cohort == 2013, na.rm = TRUE),
+    "2014" = sum(cohort == 2014, na.rm = TRUE),
+    "2015" = sum(cohort == 2015, na.rm = TRUE),
+    "2016" = sum(cohort == 2016, na.rm = TRUE),
+    "2018" = sum(cohort == 2018, na.rm = TRUE),
+    "2019" = sum(cohort == 2019, na.rm = TRUE),
+    Total = sum(!is.na(age)),
+    across(all_of(child_impairment_vars), 
+           list("% (N)" = ~ sprintf("%.2f (%d)", mean(. == 1, na.rm = TRUE) * 100, sum(. == 1, na.rm = TRUE))), 
+           .names = "{col}_Summary"),
+    "Any" = sprintf("%.2f (%d)", mean(any_impairment, na.rm = TRUE) * 100, sum(any_impairment, na.rm = TRUE))
+  ) %>%
+  t() %>%
+  as.data.frame() %>%
+  setNames("Total")
+
+#combine data frames
+df_participant_characteristics <- cbind(df_participant_characteristics_by_gender, df_participant_characteristics_ungrouped)
+
+#fix row names
+new_row_names <- gsub("_", "/", sub("child_impairment_(.*)_Summary", "\\1", rownames(df_participant_characteristics)))
+
+#capitalize first letter
+new_row_names_cap <- tools::toTitleCase(new_row_names)
+
+#edit data frame
+rownames(df_participant_characteristics) <- new_row_names_cap
+
+###table
+apa_table(
+  df_participant_characteristics,
+  caption = "(ref:participant-characteristics-table-caption)",
+  note = "(ref:participant-characteristics-table-note)",
+  col_spanners = list(
+    "Gender" = c(2,3)
+    ),
+  stub_indents = list(
+    "N" = c(2:8),
+    "Impairment/medical condition, \\% (N)" = c(9:16)
+  ),
+  align = c("l", "c", "c", "c"),
+  escape = FALSE
+)
+```
+
+BarnULF contains data for a total of `r printnum(nrow(df_barnulf))` children across the years 2013-2019. However, as no data was collected on impairment-related variables in 2017, this year was excluded from the analyses in the present study, resulting in a total of `r printnum(nrow(df_barnulf_cfa_selected_5_2017_removed))` participants aged 10-18 years. Sample characteristics are displayed in Table \@(tab:participant-characteristics).
+
+## Material
+
+(ref:mental-health-problem-indicators-table-caption) BarnULF items selected as possible mental health problem indicators.
+
+```{r mental-health-problem-indicators-table, include = TRUE}
+#set up data frame
+df_mhp_indicators <- data.frame(
+  Item = c(1:9),
+  Indicators = c(
+    "How often do you feel sad or down?",
+    "How often do you have difficulties to sit still and focus?",
+    "How often do you feel tense or nervous?",
+    "How often do you feel stressed?",
+    "How often do you have sleeping problems at night?",
+    "How often do you have difficulties sleeping at night?",
+    "How often do you feel tired during school time?",
+    "How often do you have a headache?",
+    "How often do you have a stomach ache?"
+    ),
+  Abbreviation = c(
+    "Sad/down",
+    "Difficulties sitting still/focusing",
+    "Tense/nervous",
+    "Stress",
+    "Sleep problems",
+    "Difficulties falling asleep",
+    "Tired",
+    "Headache",
+    "Stomach ache")
+)
+
+#create table
+apa_table(
+  df_mhp_indicators,
+  caption = "(ref:mental-health-problem-indicators-table-caption)",
+  landscape = TRUE,
+  escape = FALSE
+)
+```
+
+### Indicators
+
+All items that were identified as possible indicators of mental health problems in the BarnULF survey were included in the analyses (see Table \@ref(tab:mental-health-problem-indicators-table)). In BarnULF, slight changes in item wording and the number of response levels have been made over the years (mainly from 2016), which meant that some response levels had to be collapsed to enable the merge of data from 2013-2015 and 2016-2019 (see Supplementary Table X for a full list of items and response level versions). Depending on the item and the year the data was collected, there were 6-7 response options on the Likert-style response scales. However, after re-coding "Do not know" and "Refuse to answer" to missing and merging some levels 3-4 levels remained, with the following endpoints: "Most of the time" (1)/"Several times per week" (1) and "Almost never" ("3")/"Less often or never" (4).
+
+### Grouping variables
+
+Information on seven impairments or health condition was collected in the form of binary ("Yes" [1]/"No" [2]) questions answered by the caregiver of the child. For asthma/allergy, visual impairment, and other impairments the item contained the additional description "...that hinders his/her daily life".<!--kolla att detta stämmer--> Based on the responses to the specific impairment items, an overall binary impairment variable that used in the analyses was created ["Any impairment/health condition" [1] / "No impairment/health condition" [2]]. Information about child age (in years), gender ("Boy" [1]/"Girl" [2]), and the year the data was collected was also retrieved. For age, two groups were defined: i) children 10-14 years of age and ii) children 15-18 years of age.
+
+## Procedure
+
+## Data analysis
+
+<!-- Questions to discuss: we constantly talk as if there were 8 indicators but in the list attached to the preregistration and in the analyses in this manuscript there were 9. -->
+
+Confirmatory factor analysis using the *lavaan* [@rosseel2012] R package was performed to evaluate the fit of a model with the nine variables listed in Table \@ref(tab:mental-health-problem-indicators-table) as indicators of a latent mental health problems variable. The model was optimized in a step-by-step approach by iteratively adding residual correlations between pairs of indicators with the largest impact on model fit. This procedure was repeated until there were no more such modifications with the potential of making a meaningful improvement to model fit (i.e., modification index above four). The degree of fit of the model was evaluated by a combination of different measures (and commonly applied cut-offs for acceptable fit): the Comparative Fit Index (*CFI*; >.95), the Tucker-Lewis Index (*TLI*; >.95), the Root Mean Square Error of Approximation (*RMSEA*; $\leqslant.06$ or 90% of confidence interval $\leqslant.08$), and $\chi^2/df$ (<2). 
+
+In a second step, four multigroup analyses were performed to assess whether the relationships specified in the original model differed according to age, gender, the year data was collected, and impairment/medical condition. For each of these analyses, a constrained model and a fully freed (configural) model were fitted to the data. Only equality between paths (no other aspects of the model) was tested, i.e., the paths between the latent variable and the indicators was set equal in one model and freed in the other.
+
+For multigroup analyses with a significant difference in the fit to data between the constrained and configural model, the possible group effect on the separate paths between indicators and the latent variable was examined. This was achieved by a series of comparisons, in which partially constrained models, with a path between one indicator and the latent variable being constrained in each model, was compared to the configural model.
+
+For all analyses, the WLSMV estimator was used to account for the ordered nature of the indicators. The partially/fully constrained models were compared to the configural models with likelihood tests based on $\chi^2$ differences between models. For each comparison, the configural model was preferred if the models had a significantly different fit (p<.05). A significant difference in the fit of the models was interpreted as an indication of variation in the structure of mental health problems based on disability, age, gender, and cohort.
+
+### Missing data
+
+`r printnum(n_removed_nas, , numerals = FALSE, capitalize = TRUE)` participants were removed due to not having provided answers to any of the mental health problems related items. For the resulting data set, missing data was considered missing at random (missing data was `r printnum(missingness)`%) and multivariate imputation by chained equations was conducted with the *mice* [@buuren2011] R package. Indicators and impairment-related variables were imputed separately in one step (five imputations each).
+
+# Results
+
+(ref:correlation-table-caption) Correlations between the indicator variables.
+
+(ref:correlation-table-note) The reported values are Kendall's $\tau$ coefficient. All correlations are significant at the *p* <. 001 level.
+
+```{r correlation-table, include = TRUE, cache = TRUE}
+#combine data frames
+df_barnulf_corr_all_in_one_df <- map_dfr(
+    list_df_barnulf_cfa_selected_imputed_1,
+    ~ dplyr::select(.x, c(starts_with("mental_health"), "ID"))
+    )
+
+#select median across imputed data frames
+df_barnulf_corr_pooled <- df_barnulf_corr_all_in_one_df %>%
+  group_by(ID) %>%
+  summarise(across(everything(), median)) %>%
+  ungroup() %>%
+  dplyr::select(-ID)
+
+#calculate correlation matrix
+df_barnulf_corr_matrix <- cor(
+  df_barnulf_corr_pooled,
+  method = "kendall"
+  )
+
+#significance testing and extracting p-values
+barnulf_p_values <- corr.test(
+  df_barnulf_corr_pooled, 
+  use = "pairwise", 
+  method = "kendall")$p
+
+#set upper triangle values to NA
+df_barnulf_corr_matrix[upper.tri(df_barnulf_corr_matrix)] <- NA
+  
+#edit row names
+rownames(df_barnulf_corr_matrix) <- c(
+  "1. Sad/down",
+  "2. Difficulties sitting still/focusing",
+  "3. Tense/nervous",
+  "4. Headache",
+  "5. Stomach ache",
+  "6. Sleep problems",
+  "7. Difficulties falling asleep",
+  "8. Tired",
+  "9. Stress"
+  )
+
+#set up table
+apa_table(
+  df_barnulf_corr_matrix,
+  col.names = c("", "1", "2", "3", "4", "5", "6", "7", "8", "9"),
+  caption = "(ref:correlation-table-caption)",
+  note = "(ref:correlation-table-note)",
+  landscape = TRUE,
+  escape = FALSE
+  )
+```
+
+(ref:figure-optimized-model-caption) Graphical representation of the optimized mental health problems model with the latent variable represented as a circle, indicators as squares, factor loadings as single-headed arrows, and residual correlations and error variances as double-headed arrows.
+
+```{r figure-optimized-model, results = 'asis', fig.cap = "(ref:figure-optimized-model-caption)"}
+#plot figure
+plot(optimized_figure_plot)
+```
+
+(ref:figure-original-model-caption) Graphical representation of the original mental health problems model with the latent variable represented as a circle, indicators as squares, factor loadings as single-headed arrows, and error variances as double-headed arrows.
+
+```{r figure-original-model, results = 'asis', fig.cap = "(ref:figure-original-model-caption)"}
+#plot figure
+plot(original_figure_plot)
+```
+
+(ref:model-fits-table-caption) Selected fit indices for single and multigroup mental health problems models.
+
+(ref:model-fits-table-note) Abbreviations used in the table: degrees of freedom (df), the Comparative Fit Index (*CFI*), the Tucker-Lewis Index (*TLI*), the Root Mean Square Error of Approximation (*RMSEA*), and confidence interval (CI). In the configural models, all model parameters are freed. In the constrained models, factor loadings have been constrained across groups.
+
+```{r model-fits-table, include = TRUE}
+#according to the preregistration, the following fit measures should be considered: CFI >0.95, TLI>0.95, RMSEA ≤ 0.06 (or 90% of CI ≤ 0.08), Chi2/df<2. 
+
+#combine data frame with fits for original and optimized models
+fits_models_all <- do.call(
+  rbind,
+  list(
+    pooled_fits_1, 
+    pooled_fits_9,
+    pooled_fits_disability_free,
+    pooled_fits_disability_constrained,
+    pooled_fits_sex_free,
+    pooled_fits_sex_constrained,
+    pooled_fits_age_group_free,
+    pooled_fits_age_group_constrained,
+    pooled_fits_cohort_free,
+    pooled_fits_cohort_constrained)
+)
+
+#select the relevant fit measures
+fits_models_selected <- fits_models_all %>%
+  dplyr::select(
+    chisq.scaled,
+    df.scaled,
+    pvalue.scaled,
+    cfi.scaled,
+    tli.scaled,
+    rmsea.scaled,
+    rmsea.ci.lower.scaled,
+    rmsea.ci.upper.scaled 
+  ) %>%
+  
+#transform degrees of freedom variable to integer  
+  mutate(df.scaled = as.integer(df.scaled)) %>%
+  rowwise() %>%
+  
+#add columns with model names
+   add_column(Model = c("Original", "Optimized", "Disability configural", "Disability constrained", "Sex configural", "Sex constrained", "Age group configural", "Age group constrained", "Cohort configural", "Cohort constrained"),
+             .before = "chisq.scaled") %>%
+
+#calculate chisq/df and add to data frame    
+  mutate(
+    chisq.div.df = sum(chisq.scaled/df.scaled), .before = cfi.scaled
+  ) %>%
+  
+#combine confidence interval values
+  mutate(rmsea.ci.lower.scaled = round(rmsea.ci.lower.scaled, 2),
+         rmsea.ci.upper.scaled = round(rmsea.ci.upper.scaled, 2)
+  ) %>%
+  unite("90CI", rmsea.ci.lower.scaled | rmsea.ci.upper.scaled, sep="-")
+
+#create table
+apa_table(
+  fits_models_selected,
+  align = c("l", rep("c", 8)),
+  col.names = c("Model", "$\\chi^2$", "df", "p ($\\chi^2$)", "$\\chi^2$/df", "$CFI$", "$TLI$", "Estimate", "90\\% CI"),
+  col_spanners = list(
+    `$RMSEA$` = c(8,9)
+    ),
+  stub_indents = list(
+    "Single-group analyses" = c(1:2),
+    "Multigroup analyses" = c(3:10)
+  ),
+  caption = "(ref:model-fits-table-caption)",
+  note = "(ref:model-fits-table-note)",
+  escape = FALSE
+  )
+```
+
+(ref:multigroup-models-stat-comparison-table-caption) Results of $\chi^2$ tests of the difference between the test statistics for the multigroup confirmatory factor analyses with freed and constrained factor loadings.
+
+(ref:multigroup-models-stat-comparison-table-note) The reported test statistics are based on the imputed data set that produced the median test statistic difference for each comparison. Comparisons are based on the robust test statistics.
+
+```{r multigroup-models-stat-comparison-table, eval = FALSE}
+apa_table(
+  df_all_chi_sq_median_result,
+  align = c("l", "c", "c", "c"),
+  col_spanners = list(
+    `$\\chi^2$` = c(2,4)
+  ),
+  col.names = c("Grouping variable", "$\\chi^2$", "df", "p"),
+  caption = "(ref:multigroup-models-stat-comparison-table-caption)",
+  note = "(ref:multigroup-models-stat-comparison-table-note)",
+  escape = FALSE
+  )
+```
+
+(ref:multigroup-models-post-hoc-table-caption) Results of the $\chi^2$ tests where the test statistics of each of the multigroup confirmatory factor analyses (grouped on disability and cohort) with one path constrained at a time were compared to the test statistics of the freed model.
+
+(ref:multigroup-models-post-hoc-table-note) The reported test statistics are based on the imputed data set that produced the median test statistic difference for each comparison. Comparisons are based on the robust test statistics.
+ 
+```{r multigroup-models-post-hoc-table, include = TRUE}
+#combine dataframes
+df_all_chi_sq_results_combined <- do.call(
+  cbind,
+  list(
+    df_impairment_chi_sq_median_result_combined,
+    df_cohort_chi_sq_median_result_combined[,2:4]
+  )
+  )
+
+#build table
+apa_table(
+  df_all_chi_sq_results_combined,
+  align = c("l", rep("c", 6)),
+  col_spanners = list(
+    "Disability" = c(2,4),
+    "Cohort" = c(5,7)
+  ),
+  col.names = c(
+    "Constrained path", 
+    "Test statistic", 
+    "df", 
+    "p",
+    "Test statistic", 
+    "df", 
+    "p"
+    ),
+  caption = "(ref:multigroup-models-post-hoc-table-caption)",
+  note = "(ref:multigroup-models-post-hoc-table-note)",
+  escape = FALSE,
+  longtable = TRUE,
+  landscape = TRUE
+  )
+```
+
+As seen in Table \@ref(tab:correlation-table), the correlations between indicators were weak but reached significance in all cases due to the sample size. For the non-modified model (see Figure \@ref(fig:figure-original-model)), the confirmatory factor analysis showed that all pooled (by calculating the mean across the imputed data sets) model parameters made significant contributions. Only one of the indicators ("Difficulties sitting still/focusing") had a factor loading below 0.4. However, the fit of the model to data was inadequate according to all but one (*RMSEA*) of the fit indices (see Table \@ref(tab:model-fits-table)). The optimization of the model, according to the predefined principle, resulted in a model with eight residual correlations added (see Figure \@ref(fig:figure-optimized-model)). As with the original model, all pooled model parameters made significant contributions. No factor loading were below 0.4 and fit to data was acceptable according to all selected fit indices (see Table \@ref(tab:model-fits-table)).
+
+## Multigroup analyses
+
+Fit indices for the multigroup analyses are displayed in Table \@ref(tab:model-fits-table). Differences in the structure (i.e., factor loadings) between groups were assessed by comparing the robust test statistic of the configural multigroup model to the test statistic of the model with constrained paths. For the model grouped on disability status, there was a significant difference, $\chi^2$(`r printnum(df_all_chi_sq_median_result$DF[[1]])`, N = `r printnum(nrow(df_barnulf_cfa_selected_5_2017_removed), digits = 0)`) = `r printnum(df_all_chi_sq_median_result$chi.sq.difference[[1]])`, *p* `r printp(df_all_chi_sq_median_result$p.value[[1]])`, indicating that loadings were unequal for the disability and non-disability groups. The same was observed for the cohort multigroup comparison, $\chi^2$(`r printnum(df_all_chi_sq_median_result$DF[[2]])`, N = `r printnum(nrow(df_barnulf_cfa_selected_5_2017_removed), digits = 0)`) = `r printnum(df_all_chi_sq_median_result$chi.sq.difference[[2]])`, *p* `r printp(df_all_chi_sq_median_result$p.value[[2]])`. In other words, factor loadings differed based on the year data was collected. However, there were no differences between the configural and constrained sex multigroup models, $\chi^2$(`r printnum(df_all_chi_sq_median_result$DF[[3]])`, N = `r printnum(nrow(df_barnulf_cfa_selected_5_2017_removed), digits = 0)`) = `r printnum(df_all_chi_sq_median_result$chi.sq.difference[[3]])`, *p* `r printp(df_all_chi_sq_median_result$p.value[[3]])`, or age group models, $\chi^2$(`r printnum(df_all_chi_sq_median_result$DF[[4]])`, N = `r printnum(nrow(df_barnulf_cfa_selected_5_2017_removed), digits = 0)`) = `r printnum(df_all_chi_sq_median_result$chi.sq.difference[[4]])`, *p* `r printp(df_all_chi_sq_median_result$p.value[[4]])`. The factor loadings were similar for boys and girls as well as for children aged 10-14 years and 15-18 years.
+
+The influence of each individual path to the difference observed between the disability and cohort multigroup models were assessed by comparing models with one path freed at a time to the configural models. As can be seen in Table \@ref(tab:multigroup-models-post-hoc-table), there was a significant difference between all these models, indicating different factor loadings for each indicator for the disability and non-disability groups, as well as across cohorts.
+
+# Discussion
+
+# Conclusions
+
+\newpage
+
+# References
+
+::: {#refs custom-style="Bibliography"}
+:::
